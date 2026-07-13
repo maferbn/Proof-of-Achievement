@@ -1,0 +1,145 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ==================== SIWE NONCE ====================
+// Replay-protection: stores nonce for each SIWE message request
+// Nonce is marked as used after successful verification
+model SiweNonce {
+  id        String    @id @default(cuid())
+  nonce     String    @unique
+  address   String    @db.VarChar(42) // Ethereum address that requested this nonce
+  used      Boolean   @default(false) // true = already used in verifySiweSignature
+  expiresAt DateTime  // 10 minutes after generation
+  createdAt DateTime  @default(now())
+
+  @@index([address])
+  @@index([expiresAt])
+  @@index([used])
+}
+
+// ==================== ADMIN ====================
+// Wallet address used for SIWE login & ownership of groups
+model Admin {
+  id                String    @id @default(cuid())
+  walletAddress     String    @unique @db.VarChar(42) // Ethereum checksummed address
+  displayName       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  relayerWallet     RelayerWallet?
+  groups            Group[]
+  badgeDefinitions  BadgeDefinition[]
+}
+
+// ==================== RELAYER WALLET ====================
+// One per admin: encrypted private key + public address + MINTER_ROLE status
+model RelayerWallet {
+  id                String    @id @default(cuid())
+  adminId           String    @unique // 1:1 with Admin
+  relayerAddress    String    @unique @db.VarChar(42) // Public address of the relayer wallet
+  encryptedPrivateKey String  // AES-256-GCM encrypted private key (never in plaintext)
+  isActive          Boolean   @default(false) // true = MINTER_ROLE granted on-chain, false = revoked or not yet granted
+  minterRoleGrantedAt DateTime? // When MINTER_ROLE was first granted on-chain
+  minterRoleRevokedAt DateTime? // When MINTER_ROLE was revoked on-chain
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  admin             Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([relayerAddress])
+}
+
+// ==================== GROUP ====================
+// A group of users managed by an admin, each admin owns multiple groups
+model Group {
+  id                String    @id @default(cuid())
+  adminId           String
+  name              String
+  description       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  admin             Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  members           Member[]
+  badgeDefinitions  BadgeDefinition[]
+
+  @@index([adminId])
+  @@unique([adminId, name]) // Unique group name per admin
+}
+
+// ==================== MEMBER ====================
+// A user in a group (login not required yet, but must exist to receive badges)
+model Member {
+  id                String    @id @default(cuid())
+  groupId           String
+  walletAddress     String    @db.VarChar(42) // Ethereum address of the member
+  displayName       String?
+  joinedAt          DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  group             Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  badgeAwards       BadgeAward[]
+
+  @@index([groupId])
+  @@index([walletAddress])
+  @@unique([groupId, walletAddress]) // Unique member per group
+}
+
+// ==================== BADGE DEFINITION ====================
+// Template of a badge (name, description, image URI) created by an admin
+model BadgeDefinition {
+  id                String    @id @default(cuid())
+  adminId           String
+  groupId           String
+  name              String
+  description       String?
+  imageURI          String? // IPFS URL or similar
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  admin             Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  group             Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  badgeAwards       BadgeAward[]
+
+  @@index([adminId])
+  @@index([groupId])
+  @@unique([groupId, name]) // Unique badge name per group
+}
+
+// ==================== BADGE AWARD ====================
+// Record of a badge awarded to a member (contains on-chain tokenId & tx hash)
+model BadgeAward {
+  id                String    @id @default(cuid())
+  badgeDefinitionId String
+  memberId          String
+  onChainTokenId    BigInt? // The tokenId from the blockchain (can be null if tx failed)
+  transactionHash   String? // The tx hash from mint() call (can be null if tx failed)
+  status            String    @default("pending") // pending, confirmed, failed
+  failureReason     String? // Error message if status = failed
+  awardedAt         DateTime  @default(now())
+  confirmedAt       DateTime? // When tx was confirmed on-chain
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  badgeDefinition   BadgeDefinition @relation(fields: [badgeDefinitionId], references: [id], onDelete: Cascade)
+  member            Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([badgeDefinitionId])
+  @@index([memberId])
+  @@index([transactionHash])
+  @@index([status])
+  @@unique([memberId, badgeDefinitionId]) // A member can only receive one of each badge type
+}

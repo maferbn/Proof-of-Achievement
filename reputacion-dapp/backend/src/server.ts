@@ -1,0 +1,40 @@
+import express from 'express';
+import cors from 'cors';
+import { config } from './config';
+import authRoutes from './routes/auth.routes';
+import groupRoutes from './routes/groups.routes';
+import badgeRoutes from './routes/badges.routes';
+
+const app = express();
+
+// Middleware
+app.use(express.json());
+app.use(cors({ origin: config.corsOrigin }));
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Routes
+app.use('/', authRoutes);
+app.use('/', groupRoutes);
+app.use('/', badgeRoutes);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// Error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+const port = config.port;
+app.listen(port, () => {
+  console.log(`Reputation Badge backend listening on port ${port}`);
+  console.log(`Environment: ${config.nodeEnv}`);
+  console.log(`CORS origin: ${config.corsOrigin}`);
+});
