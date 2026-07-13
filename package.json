@@ -1,0 +1,29 @@
+{
+  "name": "proof-of-achievement",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "compile": "turbo compile --filter=@repo/contracts",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "clean": "turbo clean",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:generate": "turbo db:generate --filter=api",
+    "db:push": "turbo db:push --filter=api"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.5.0",
+    "eslint": "^9.16.0",
+    "typescript-eslint": "^8.17.0",
+    "@eslint/js": "^9.16.0"
+  },
+  "packageManager": "npm@10.8.2"
+}
