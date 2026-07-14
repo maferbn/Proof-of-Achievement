@@ -2,14 +2,9 @@ import { ethers } from 'ethers';
 import { config } from '../config';
 import { decryptPrivateKey } from '../utils/encryption';
 import { PrismaClient } from '@prisma/client';
+import { REPUTATION_BADGE_ABI } from '@repo/shared-types';
 
 const prisma = new PrismaClient();
-
-// ABI of ReputationBadge.mint() - minimal ABI
-const REPUTATION_BADGE_ABI = [
-  'function mint(address to, string memory uri) public returns (uint256)',
-  'function grantMinter(address minter) public',
-];
 
 /**
  * Service for managing blockchain interactions (minting badges, granting MINTER_ROLE)
@@ -169,15 +164,39 @@ export class RelayerService {
     }
 
     try {
-      const contract = new ethers.Contract(
-        config.reputationBadgeContractAddress,
-        ['function hasRole(bytes32 role, address account) public view returns (bool)'],
-        this.provider
-      );
       const MINTER_ROLE = ethers.keccak256(ethers.toUtf8Bytes('MINTER_ROLE'));
-      return await contract.hasRole(MINTER_ROLE, address);
+      return await this.reputationBadgeContract.hasRole(MINTER_ROLE, address);
     } catch (error) {
       console.error('Failed to check MINTER_ROLE:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Revoke a badge on-chain.
+   * Uses the deployer wallet (DEFAULT_ADMIN_ROLE), not the relayer wallet.
+   */
+  async revokeBadge(tokenId: number): Promise<{ transactionHash: string }> {
+    try {
+      console.log(`Revoking badge tokenId=${tokenId} via deployer wallet`);
+      const tx = await this.reputationBadgeContract.revokeBadge(tokenId);
+      console.log(`Badge revoke transaction sent: ${tx.hash}`);
+      return { transactionHash: tx.hash };
+    } catch (error: any) {
+      console.error('Failed to revoke badge:', error);
+      throw new Error(`Badge revocation failed: ${error.message || error}`);
+    }
+  }
+
+  /**
+   * Check if a badge has been revoked on-chain.
+   * Read-only operation, does not spend gas.
+   */
+  async isBadgeRevoked(tokenId: number): Promise<boolean> {
+    try {
+      return await this.reputationBadgeContract.isRevoked(tokenId);
+    } catch (error) {
+      console.error('Failed to check revocation status:', error);
       return false;
     }
   }

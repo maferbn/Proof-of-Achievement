@@ -91,3 +91,7 @@ export interface BadgeMintedEvent {
   tokenId: bigint;
   tokenURI: string;
 }
+
+// --- Shared Contract ABI ---
+
+export { REPUTATION_BADGE_ABI } from './abi';
