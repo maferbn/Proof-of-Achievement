@@ -14,10 +14,11 @@ El proyecto está organizado utilizando **Turborepo** y **npm workspaces**:
 proof-of-achievement/
 ├── apps/
 │   ├── client/               # Frontend en React + Vite + TypeScript (Wagmi/RainbowKit)
-│   └── api/                  # [Pendiente] Backend API en Node/Express + Prisma
+│   └── api/                  # Backend API en Node/Express + Prisma (PostgreSQL)
 ├── packages/
 │   ├── contracts/            # Smart contracts (Hardhat, Solidity, OpenZeppelin)
 │   └── shared-types/         # Tipos TypeScript comunes para frontend y backend
+├── docs/                     # Documentación de fases (PHASE_1_SUMMARY, PHASE_2_SUMMARY)
 ├── package.json              # Configuración y scripts raíz del monorepo
 └── turbo.json                # Configuración de las tareas de compilación y caché de Turbo
 ```
@@ -29,7 +30,7 @@ proof-of-achievement/
 - **Monorepo**: Turborepo + npm workspaces.
 - **Smart Contracts**: Hardhat + Solidity + OpenZeppelin.
 - **Frontend**: React + TypeScript + Vite + Wagmi + RainbowKit + Viem.
-- **Backend (Propuesto)**: Express/Node.js + Prisma ORM + PostgreSQL + Viem.
+- **Backend**: Express/Node.js + Prisma ORM + PostgreSQL + Ethers.js.
 - **Metadata**: Almacenamiento descentralizado en IPFS.
 
 ---
@@ -73,18 +74,15 @@ npm run format
 
 ## 4. Funcionalidades Pendientes (Próximas Fases)
 
-### 💻 Backend API (`apps/api/`) — **No Implementado Aún**
-- [ ] **Configuración Inicial**: Estructurar la aplicación Express, definir middleware de CORS y configurar variables de entorno.
-- [ ] **Persistencia (Prisma & PostgreSQL)**:
-  - Definir el archivo `schema.prisma` con los modelos de la jerarquía: `Organization`, `Group`, `Project`, `Achievement`, `IssuedAchievement`, `User`.
-  - Crear e inicializar la base de datos PostgreSQL mediante migraciones de Prisma.
-- [ ] **Servicio de Blockchain (`blockchain.service.ts`)**:
-  - Implementar la interacción con el contrato usando **Viem** (leer balances, verificar roles).
-  - Configurar la billetera administradora/validadora con clave privada para firmar y enviar la transacción `issueAchievement` (pagando el gas por el usuario).
+### 💻 Backend API (`apps/api/`) — **Implementado**
+- [x] **Configuración Inicial**: Express, CORS, variables de entorno.
+- [x] **Persistencia (Prisma & PostgreSQL)**: Schema con 7 modelos, migraciones, soporte SQLite para tests.
+- [x] **Servicio de Blockchain**: Interacción con ReputationBadge.sol vía Ethers.js (mint, grantMinter, revokeMinter, hasRole).
+- [x] **Autenticación (SIWE + JWT)**: Login con billetera Ethereum, nonces anti-replay, tokens JWT.
+- [x] **Relayer Wallets**: Gestión de wallets por admin, encriptación AES-256-GCM de llaves privadas.
+- [x] **API REST**: Endpoints para grupos, miembros, badge definitions, badge awards y verificación de transacciones.
 - [ ] **Servicio IPFS (`ipfs.service.ts`)**:
   - Integrar la subida y almacenamiento de metadatos del logro e imágenes a servicios como Pinata o Web3.Storage.
-- [ ] **Servicio de Validación**:
-  - Implementar la lógica interna que valida si el usuario cumple con la evidencia del logro antes de firmar el acuñado.
 
 ### 🔗 Blockchain & Contratos
 - [ ] **Implementar estándar ERC-5192**:

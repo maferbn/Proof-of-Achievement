@@ -1,0 +1,128 @@
+// Test schema (SQLite) — used by jest via db:push:test
+// Mirrors schema.prisma but with SQLite provider and without PostgreSQL-specific annotations
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model SiweNonce {
+  id        String   @id @default(cuid())
+  nonce     String   @unique
+  address   String
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([address])
+  @@index([expiresAt])
+  @@index([used])
+}
+
+model Admin {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  displayName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  relayerWallet    RelayerWallet?
+  groups           Group[]
+  badgeDefinitions BadgeDefinition[]
+}
+
+model RelayerWallet {
+  id                   String    @id @default(cuid())
+  adminId              String    @unique
+  relayerAddress       String    @unique
+  encryptedPrivateKey  String
+  isActive             Boolean   @default(false)
+  minterRoleGrantedAt  DateTime?
+  minterRoleRevokedAt  DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  admin Admin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([relayerAddress])
+}
+
+model Group {
+  id          String   @id @default(cuid())
+  adminId     String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  admin            Admin            @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  members          Member[]
+  badgeDefinitions BadgeDefinition[]
+
+  @@index([adminId])
+  @@unique([adminId, name])
+}
+
+model Member {
+  id            String   @id @default(cuid())
+  groupId       String
+  walletAddress String
+  displayName   String?
+  joinedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  group       Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  badgeAwards BadgeAward[]
+
+  @@index([groupId])
+  @@index([walletAddress])
+  @@unique([groupId, walletAddress])
+}
+
+model BadgeDefinition {
+  id          String   @id @default(cuid())
+  adminId     String
+  groupId     String
+  name        String
+  description String?
+  imageURI    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  admin       Admin         @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  group       Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  badgeAwards BadgeAward[]
+
+  @@index([adminId])
+  @@index([groupId])
+  @@unique([groupId, name])
+}
+
+model BadgeAward {
+  id                String    @id @default(cuid())
+  badgeDefinitionId String
+  memberId          String
+  onChainTokenId    BigInt?
+  transactionHash   String?
+  status            String    @default("pending")
+  failureReason     String?
+  awardedAt         DateTime  @default(now())
+  confirmedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  badgeDefinition BadgeDefinition @relation(fields: [badgeDefinitionId], references: [id], onDelete: Cascade)
+  member          Member          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([badgeDefinitionId])
+  @@index([memberId])
+  @@index([transactionHash])
+  @@index([status])
+  @@unique([memberId, badgeDefinitionId])
+}

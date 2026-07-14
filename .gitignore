@@ -43,8 +43,8 @@ coverage.json
 .DS_Store
 Thumbs.db
 
-# Prisma
-prisma/migrations/
+# Prisma test artifacts
+*.db
 
 # Lock files in subdirectories
 reputacion-dapp/
