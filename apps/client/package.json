@@ -10,13 +10,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@rainbow-me/rainbowkit": "^2.2.3",
+    "@repo/shared-types": "*",
+    "@tanstack/react-query": "^5.62.0",
+    "lucide-react": "^1.24.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "@rainbow-me/rainbowkit": "^2.2.3",
-    "@tanstack/react-query": "^5.62.0",
-    "wagmi": "^2.13.4",
+    "react-router-dom": "^7.18.1",
     "viem": "^2.21.54",
-    "@repo/shared-types": "*"
+    "wagmi": "^2.13.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
