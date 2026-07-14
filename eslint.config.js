@@ -13,6 +13,7 @@ export default tseslint.config(
       '**/cache/**',
       '**/typechain-types/**',
       '**/node_modules/**',
+      '**/jest.config.*',
     ],
   },
   {

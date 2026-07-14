@@ -26,7 +26,7 @@ describe('Badge Award Verification Logic', () => {
 
   describe('Badge award status transitions', () => {
     it('should transition from pending to confirmed on successful receipt', () => {
-      let badgeAward = { status: 'pending' };
+      const badgeAward = { status: 'pending' };
       const receiptStatus = 1;
 
       if (receiptStatus === 1) {
@@ -37,7 +37,7 @@ describe('Badge Award Verification Logic', () => {
     });
 
     it('should transition from pending to failed on reverted receipt', () => {
-      let badgeAward = { status: 'pending' };
+      const badgeAward = { status: 'pending' };
       const receiptStatus = 0;
 
       if (receiptStatus === 0) {
@@ -48,7 +48,7 @@ describe('Badge Award Verification Logic', () => {
     });
 
     it('should remain pending if no receipt', () => {
-      let badgeAward = { status: 'pending' };
+      const badgeAward = { status: 'pending' };
       const receipt = null;
 
       if (receipt === null) {
