@@ -1,0 +1,17 @@
+node_modules
+.turbo/
+.next/
+dist/
+build/
+coverage/
+*.log
+
+# Solidity / Hardhat artifacts
+packages/**/artifacts/
+packages/**/cache/
+packages/**/typechain-types/
+packages/**/build-info/
+
+# Otros outputs de contratos
+packages/**/*.dbg.json
+packages/**/*.bin
