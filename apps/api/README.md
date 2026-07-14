@@ -12,6 +12,9 @@ Backend for the Soulbound Reputation Badges DApp. Handles admin authentication (
    - **On-chain** (ReputationBadge.sol): Soulbound ERC721, access control via MINTER_ROLE.
    - **Off-chain** (PostgreSQL): Group membership, admin-group ownership, badge definitions, award history.
 4. **Blockchain Interactions** (ethers.js v6): Mint badges and manage MINTER_ROLE via relayer wallets.
+5. **Simulated Oracle** (validation.service.ts): Off-chain evidence validation before badge awarding.
+6. **IPFS Service** (ipfs.service.ts): Upload badge metadata and images to IPFS via Pinata.
+7. **Event Indexer** (event-indexer.service.ts): Background job that polls blockchain events and auto-confirms badge awards.
 
 ### Database Schema (7 Models)
 
@@ -31,6 +34,7 @@ Backend for the Soulbound Reputation Badges DApp. Handles admin authentication (
 - PostgreSQL 12+
 - Sepolia RPC endpoint (Alchemy, Infura, or other provider)
 - Deployed ReputationBadge contract address
+- Pinata account (optional, for IPFS metadata upload)
 
 ### 1. Install Dependencies
 
@@ -54,6 +58,9 @@ Required variables:
 - `DEPLOYER_PRIVATE_KEY`: Private key of wallet that deployed the contract
 - `ENCRYPTION_MASTER_KEY`: 32-byte hex key for encrypting relayer private keys (generate with: `node -e "console.log('0x' + require('crypto').randomBytes(32).toString('hex'))"`)
 - `JWT_SECRET`: Secret for JWT signing
+- `PINATA_JWT` (optional): JWT for Pinata IPFS uploads. If not set, IPFS features are disabled gracefully.
+- `PINATA_GATEWAY` (optional): IPFS gateway URL. Defaults to `https://gateway.pinata.cloud`.
+- `INDEXER_POLLING_INTERVAL_MS` (optional): Event indexer polling interval in ms. Defaults to `30000`.
 
 ### 3. Set Up Database
 
@@ -247,6 +254,84 @@ Get badge definition (public).
 }
 ```
 
+#### `POST /badge-definitions/:id/validate`
+**Simulated Oracle**: Validates whether a member is eligible to receive a badge. Checks group membership, badge uniqueness, and optionally validates evidence. Does NOT mint on-chain.
+
+**Request:**
+```json
+{
+  "memberId": "member-id",
+  "evidence": {
+    "type": "course_completion",
+    "data": {
+      "courseId": "web3-101",
+      "completionDate": "2024-01-15T00:00:00Z"
+    }
+  }
+}
+```
+
+**Response (valid):**
+```json
+{
+  "valid": true,
+  "validatedAt": "2024-...",
+  "memberId": "member-id",
+  "badgeDefinitionId": "badge-id",
+  "message": "Member is eligible to receive this badge"
+}
+```
+
+**Response (invalid):**
+```json
+{
+  "valid": false,
+  "reason": "Member does not belong to badge group",
+  "memberId": "member-id",
+  "badgeDefinitionId": "badge-id",
+  "message": "Validation failed: Member does not belong to badge group"
+}
+```
+
+**Supported evidence types:** `course_completion`, `game_win`, `exam_pass`, `contribution`. Unknown types accept any non-empty `data` object.
+
+#### `POST /badges/metadata`
+**IPFS Upload**: Upload badge metadata (and optional image) to IPFS via Pinata. Returns the `ipfs://` URI.
+
+**Request (multipart/form-data):**
+- `name` (required): Badge name
+- `description` (optional): Badge description
+- `attributes` (optional): JSON array of `{ trait_type, value }` objects
+- `image` (optional): Image file
+
+**Response:**
+```json
+{
+  "metadataUri": "ipfs://QmXxx...",
+  "gatewayUrl": "https://gateway.pinata.cloud/ipfs/QmXxx...",
+  "imageUri": "ipfs://QmYyy..."
+}
+```
+
+**Note:** Returns 503 if `PINATA_JWT` is not configured.
+
+#### `POST /badge-awards/:id/revoke`
+**Badge Revocation**: Revoke a badge that was previously awarded. Only the admin who owns the badge definition can revoke it.
+
+**Headers:**
+```
+Authorization: Bearer <JWT_TOKEN>
+```
+
+**Response:**
+```json
+{
+  "message": "Badge revoked successfully",
+  "transactionHash": "0x...",
+  "badgeAward": { ... }
+}
+```
+
 #### `POST /badge-awards/:id/verify-receipt`
 **Receipt Verification**: Check if a pending badge mint was confirmed or reverted on-chain.
 
@@ -344,6 +429,8 @@ npm test
 - **permissions.test.ts**: Admin ownership, group membership, badge uniqueness, address validation
 - **auth.service.test.ts**: SIWE message generation, JWT verification, token expiration
 - **encryption.test.ts**: Private key encryption/decryption, tampering detection
+- **badge-verification.test.ts**: Receipt status interpretation, status transitions
+- **validation.service.test.ts**: Oracle validation, evidence verification (63 tests total)
 
 To run a specific test file:
 ```bash
@@ -362,18 +449,21 @@ npm run test:watch
 | **Blockchain SDK** | ethers.js v6 | Consolidation, stable, best for backend integrations |
 | **Authentication** | JWT (stateless) | Scalable, standard for APIs, compatible with frontend |
 | **SIWE Nonce** | Persist + validate server-side | Replay-protection; nonce stored in DB, marked used after verification, 10-min expiry |
-| **Tx Confirmation** | Optimistic (save on send) + manual verify | Fast endpoint response, can verify receipts later with `/badge-awards/:id/verify-receipt` |
+| **Tx Confirmation** | Optimistic (save on send) + event indexer | Fast endpoint response; event indexer auto-confirms via polling |
 | **Private Key Encryption** | AES-256-GCM + PBKDF2 | Strong symmetric encryption; master key in env only |
 | **Relayer Model** | 1 per admin | Each admin has isolated wallet, clear key management scope |
+| **Oracle Model** | Simulated (backend validates off-chain) | Pragmatic for academic prototype; validation.service.ts checks evidence |
+| **IPFS** | Pinata (optional) | Metadata uploaded to IPFS if PINATA_JWT is set; graceful fallback if not |
+| **Event Indexer** | Polling every 30s | Background job processes pending awards and listens for new events |
 
 ## Known Limitations & Future Work
 
 1. **No batch minting**: Each badge is a separate transaction (gas-intensive for bulk operations)
-2. **Manual tx verification**: Admin calls `/badge-awards/:id/verify-receipt` to check status (could be automated with background job)
-3. **No event indexing**: Badge awards are stored in DB, not read from blockchain events
-4. **No pause mechanism**: If relayer is compromised, admin must revoke MINTER_ROLE manually
-5. **Production KMS**: Current AES-256-GCM encryption sufficient for testnet; production should use AWS KMS or Vault
-6. **No automatic nonce cleanup**: Expired SIWE nonces must be cleaned up via `authService.cleanupExpiredNonces()` (can be scheduled job)
+2. **No pause mechanism**: If relayer is compromised, admin must revoke MINTER_ROLE manually
+3. **Production KMS**: Current AES-256-GCM encryption sufficient for testnet; production should use AWS KMS or Vault
+4. **No automatic nonce cleanup**: Expired SIWE nonces must be cleaned up via `authService.cleanupExpiredNonces()` (can be scheduled job)
+5. **IPFS optional**: If PINATA_JWT is not configured, metadata uses placeholder URIs; real metadata requires Pinata account
+6. **Polling latency**: Event indexer polls every 30s; badge confirmation takes up to 30 seconds after on-chain mining
 
 ## Deployment Checklist
 

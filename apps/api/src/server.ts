@@ -4,6 +4,8 @@ import { config } from './config';
 import authRoutes from './routes/auth.routes';
 import groupRoutes from './routes/groups.routes';
 import badgeRoutes from './routes/badges.routes';
+import { eventIndexer } from './services/event-indexer.service';
+import { ipfsService } from './services/ipfs.service';
 
 const app = express();
 
@@ -13,7 +15,12 @@ app.use(cors({ origin: config.corsOrigin }));
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    eventIndexer: eventIndexer.isRunning() ? 'running' : 'stopped',
+    ipfs: ipfsService.isConfigured() ? 'configured' : 'not configured',
+  });
 });
 
 // Routes
@@ -33,8 +40,25 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 const port = config.port;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Reputation Badge backend listening on port ${port}`);
   console.log(`Environment: ${config.nodeEnv}`);
   console.log(`CORS origin: ${config.corsOrigin}`);
+  console.log(`IPFS configured: ${ipfsService.isConfigured()}`);
+
+  // Start the event indexer after the server is listening
+  eventIndexer.start();
 });
+
+// Graceful shutdown
+const shutdown = async (signal: string) => {
+  console.log(`\n${signal} received. Shutting down gracefully...`);
+  eventIndexer.stop();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
