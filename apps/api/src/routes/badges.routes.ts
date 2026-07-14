@@ -350,4 +350,67 @@ router.post('/badge-awards/:id/verify-receipt', authMiddleware, async (req: Auth
   }
 });
 
+/**
+ * POST /badge-awards/:id/revoke
+ * Revoke a badge that was previously awarded.
+ * Only the admin who owns the badge definition can revoke it.
+ * Writes on-chain via deployer wallet, then updates local DB.
+ */
+router.post('/badge-awards/:id/revoke', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.adminId!;
+    const { id: badgeAwardId } = req.params;
+
+    // 1. Find the badge award with its badge definition
+    const badgeAward = await prisma.badgeAward.findUnique({
+      where: { id: badgeAwardId },
+      include: {
+        badgeDefinition: { include: { group: true } },
+        member: true,
+      },
+    });
+
+    if (!badgeAward) {
+      return res.status(404).json({ error: 'Badge award not found' });
+    }
+
+    // 2. Check admin ownership
+    if (!checkOwnership(badgeAward.badgeDefinition.adminId, adminId)) {
+      return res.status(403).json({ error: 'Not authorized to revoke this badge' });
+    }
+
+    // 3. Must have an on-chain token id
+    if (!badgeAward.onChainTokenId) {
+      return res.status(400).json({ error: 'Badge has no on-chain token yet' });
+    }
+
+    // 4. Must not be already revoked
+    if (badgeAward.status === 'revoked') {
+      return res.status(409).json({ error: 'Badge is already revoked' });
+    }
+
+    // 5. Revoke on-chain via deployer wallet
+    const { transactionHash } = await relayerService.revokeBadge(Number(badgeAward.onChainTokenId));
+
+    // 6. Update database record
+    const updated = await prisma.badgeAward.update({
+      where: { id: badgeAwardId },
+      data: {
+        status: 'revoked',
+        revokedAt: new Date(),
+        failureReason: `Revoked by admin. Tx: ${transactionHash}`,
+      },
+    });
+
+    res.json({
+      message: 'Badge revoked successfully',
+      transactionHash,
+      badgeAward: updated,
+    });
+  } catch (error: any) {
+    console.error('Unexpected error in revoke endpoint:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

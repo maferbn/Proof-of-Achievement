@@ -110,10 +110,11 @@ model BadgeAward {
   memberId          String
   onChainTokenId    BigInt?
   transactionHash   String?
-  status            String    @default("pending")
-  failureReason     String?
+  status            String    @default("pending") // pending, confirmed, failed, revoked
+  failureReason     String? // Error message if status = failed or revoked
   awardedAt         DateTime  @default(now())
-  confirmedAt       DateTime?
+  confirmedAt       DateTime? // When tx was confirmed on-chain
+  revokedAt         DateTime? // When the badge was revoked on-chain
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

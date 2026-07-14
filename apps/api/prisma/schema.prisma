@@ -126,10 +126,11 @@ model BadgeAward {
   memberId          String
   onChainTokenId    BigInt? // The tokenId from the blockchain (can be null if tx failed)
   transactionHash   String? // The tx hash from mint() call (can be null if tx failed)
-  status            String    @default("pending") // pending, confirmed, failed
-  failureReason     String? // Error message if status = failed
+  status            String    @default("pending") // pending, confirmed, failed, revoked
+  failureReason     String? // Error message if status = failed or revoked
   awardedAt         DateTime  @default(now())
   confirmedAt       DateTime? // When tx was confirmed on-chain
+  revokedAt         DateTime? // When the badge was revoked on-chain
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

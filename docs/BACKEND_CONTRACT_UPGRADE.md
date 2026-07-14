@@ -182,9 +182,52 @@ npx turbo lint --filter=api
 
 ---
 
-## 6. Nota sobre ABI compartido
+## 6. ABI compartido desde `@repo/shared-types`
 
-Actualmente el backend usa un ABI **hardcoded** en `relayer.service.ts`. Una mejora futura es importar el ABI desde `@repo/contracts`:
+Actualmente el backend usa un ABI **hardcoded** en `relayer.service.ts`. La arquitectura del monorepo ya incluye el paquete `@repo/shared-types`, que es dependencia tanto de `apps/api` como de `apps/client`. Este paquete es el lugar natural para centralizar el ABI del contrato y eliminar la duplicación.
+
+### Enfoque recomendado: exportar el ABI desde `@repo/shared-types`
+
+`packages/shared-types` ya contiene tipos TypeScript compartidos usados por API y client:
+- Interfaces de entidades (`Organization`, `Group`, `Achievement`, `User`, etc.)
+- Tipos de respuesta de API (`ApiResponse<T>`, `PaginatedResponse<T>`)
+- Tipos relacionados al contrato (`Address`, `MintBadgeRequest`, `BadgeMintedEvent`)
+
+Agregar el ABI aquí es natural porque ambos lados interactúan con el contrato.
+
+**Paso 1:** Crear `packages/shared-types/src/abi.ts`:
+```typescript
+export const REPUTATION_BADGE_ABI = [
+  'function mint(address to, string memory uri) public returns (uint256)',
+  'function grantMinter(address minter) public',
+  'function revokeMinter(address minter) public',
+  'function locked(uint256 tokenId) public view returns (bool)',
+  'function getTokenURI(uint256 tokenId) public view returns (string memory)',
+  'function revokeBadge(uint256 tokenId) public',
+  'function isRevoked(uint256 tokenId) public view returns (bool)',
+  'function hasRole(bytes32 role, address account) public view returns (bool)',
+] as const;
+```
+
+**Paso 2:** Exportar desde `packages/shared-types/src/index.ts`:
+```typescript
+export { REPUTATION_BADGE_ABI } from './abi';
+```
+
+**Paso 3:** Reconstruir shared-types:
+```bash
+npx turbo build --filter=@repo/shared-types
+```
+
+**Paso 4:** Importar en `apps/api/src/services/relayer.service.ts`:
+```typescript
+import { REPUTATION_BADGE_ABI } from '@repo/shared-types';
+// Reemplaza la constante hardcoded actual
+```
+
+El frontend también puede importar el mismo ABI para `useReadContract` sin necesidad de duplicarlo ni modificar `packages/contracts/`.
+
+### Alternativa: importar desde `@repo/contracts`
 
 ```typescript
 // Mejora futura: importar desde artifacts
@@ -192,4 +235,4 @@ import ReputationBadgeArtifact from '@repo/contracts/artifacts/contracts/Reputat
 const REPUTATION_BADGE_ABI = ReputationBadgeArtifact.abi;
 ```
 
-Esto requiere agregar `"exports"` al `package.json` de `packages/contracts/` y sincronizar versiones. No es urgente pero elimina la duplicación del ABI.
+Esto requiere agregar `"exports"` al `package.json` de `packages/contracts/` y que API/client dependan de ese paquete. La opción de `@repo/shared-types` es más limpia porque ambas apps ya lo dependen.

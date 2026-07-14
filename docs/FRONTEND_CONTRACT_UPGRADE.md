@@ -15,7 +15,16 @@ npx turbo compile --filter=@repo/contracts
 
 El frontend necesita leer datos del contrato (estado `locked`, `isRevoked`). Actualmente no hay un cliente de lectura del contrato en el frontend (usa datos demo).
 
-**Opción A (recomendada):** Importar el ABI desde `@repo/contracts` vía `artifacts/`:
+**Opción A (recomendada):** Importar el ABI desde `@repo/shared-types`. El paquete `packages/shared-types` ya es dependencia de `apps/client` y `apps/api`, y contiene tipos TypeScript compartidos. Es el lugar natural para centralizar el ABI:
+
+```typescript
+import { REPUTATION_BADGE_ABI } from '@repo/shared-types';
+export const REPUTATION_BADGE_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
+```
+
+El ABI debe exponerse desde `packages/shared-types/src/abi.ts` y exportarse en `index.ts` (ver sección 6 de `BACKEND_CONTRACT_UPGRADE.md`). Con esto, backend y frontend comparten la misma definición sin duplicación.
+
+**Opción B:** Importar el ABI desde `@repo/contracts` vía `artifacts/`:
 ```typescript
 import ReputationBadgeArtifact from '@repo/contracts/artifacts/contracts/ReputationBadge.sol/ReputationBadge.json';
 export const REPUTATION_BADGE_ABI = ReputationBadgeArtifact.abi;
@@ -31,7 +40,7 @@ export const REPUTATION_BADGE_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
 }
 ```
 
-**Opción B (sin cambios en packages):** Embeber el ABI directamente en el frontend (copiar desde `packages/contracts/artifacts/...`). Menos elegante pero funciona sin modificar packages.
+**Opción C (sin cambios en packages):** Embeber el ABI directamente en el frontend (copiar desde `packages/contracts/artifacts/...`). Menos elegante pero funciona sin modificar packages.
 
 ---
 
@@ -43,7 +52,9 @@ Usar `wagmi` con `useReadContract` para leer el estado on-chain de cada badge:
 
 ```typescript
 import { useReadContract } from 'wagmi';
-import { REPUTATION_BADGE_ABI, REPUTATION_BADGE_ADDRESS } from './contract';
+import { REPUTATION_BADGE_ABI } from '@repo/shared-types';
+// REPUTATION_BADGE_ADDRESS proviene de variables de entorno
+const REPUTATION_BADGE_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
 
 function BadgeStatus({ tokenId }: { tokenId: number }) {
   const { data: isRevoked } = useReadContract({
@@ -111,7 +122,15 @@ async function handleRevokeBadge(badgeAwardId: string) {
 
 ## 4. Tipos compartidos (`packages/shared-types/`)
 
-Actualizar la interfaz `IssuedAchievement` (o `BadgeAward`) para incluir el estado `"revoked"`:
+El paquete `@repo/shared-types` es usado por `apps/api` y `apps/client`. Contiene:
+- **Interfaces de entidades:** `Organization`, `Group`, `Project`, `Achievement`, `IssuedAchievement`, `User`
+- **Tipos de respuesta de API:** `ApiResponse<T>`, `PaginatedResponse<T>`
+- **Tipos relacionados al contrato:** `Address` (`` `0x${string}` ``), `MintBadgeRequest`, `BadgeMintedEvent`
+- **ABI del contrato:** `REPUTATION_BADGE_ABI` (ver sección 1, Opción A)
+
+### Agregar estado `"revoked"` a `IssuedAchievement`
+
+Actualizar la interfaz en `packages/shared-types/src/index.ts`:
 
 ```typescript
 export interface IssuedAchievement {
@@ -126,6 +145,11 @@ export interface IssuedAchievement {
   status: 'pending' | 'confirmed' | 'failed' | 'revoked';  // ← agregar 'revoked'
   isRevoked?: boolean;  // ← nuevo campo derivado del contrato
 }
+```
+
+Después de cualquier cambio en shared-types, reconstruir:
+```bash
+npx turbo build --filter=@repo/shared-types
 ```
 
 ---
