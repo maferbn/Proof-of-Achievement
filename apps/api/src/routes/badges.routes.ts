@@ -226,13 +226,11 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
 
     // 6. Mint on-chain
     let transactionHash: string;
-    let expectedTokenId: bigint;
 
     try {
       const metadataURI = badgeDef.imageURI || 'ipfs://default-metadata'; // Use badge's imageURI or default
       const result = await relayerService.mintBadge(adminId, member.walletAddress, metadataURI);
       transactionHash = result.transactionHash;
-      expectedTokenId = result.expectedTokenId;
     } catch (blockchainError: any) {
       console.error('Blockchain minting failed:', blockchainError);
       return res.status(400).json({
@@ -246,7 +244,9 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       data: {
         badgeDefinitionId: badgeDefId,
         memberId,
-        onChainTokenId: expectedTokenId || null,
+        // Unknown until the tx is mined; the real tokenId is recovered from the
+        // BadgeMinted event in POST /badge-awards/:id/verify-receipt.
+        onChainTokenId: null,
         transactionHash,
         status: 'pending', // Will be confirmed once tx is mined
       },
@@ -444,13 +444,24 @@ router.post('/badge-awards/:id/verify-receipt', authMiddleware, async (req: Auth
 
     // Receipt found: check if successful or reverted
     if (receipt.status === 1) {
-      // Success: update to confirmed
+      // Recover the real tokenId from the BadgeMinted event in the receipt.
+      const tokenId = relayerService.extractMintedTokenId(receipt, badgeAward.member.walletAddress);
+
+      if (tokenId === null) {
+        // Tx succeeded but the mint event wasn't found: never fabricate an id.
+        // Leave the record as pending so it can be retried / diagnosed.
+        return res.status(500).json({
+          error: 'Transaction confirmed but BadgeMinted event was not found',
+        });
+      }
+
+      // Success: update to confirmed with the real on-chain tokenId.
       const updated = await prisma.badgeAward.update({
         where: { id: badgeAwardId },
         data: {
           status: 'confirmed',
           confirmedAt: new Date(),
-          onChainTokenId: badgeAward.onChainTokenId || undefined, // Keep existing if set
+          onChainTokenId: tokenId,
         },
       });
 

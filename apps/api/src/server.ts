@@ -7,6 +7,13 @@ import badgeRoutes from './routes/badges.routes';
 import { eventIndexer } from './services/event-indexer.service';
 import { ipfsService } from './services/ipfs.service';
 
+// Serialize BigInt values (e.g. BadgeAward.onChainTokenId) as JSON strings.
+// express' res.json() uses JSON.stringify, which throws on BigInt by default;
+// the client already accepts onChainTokenId as string | number | null.
+(BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
+  return this.toString();
+};
+
 const app = express();
 
 // Middleware
