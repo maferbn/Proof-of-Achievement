@@ -18,4 +18,6 @@ export const REPUTATION_BADGE_ABI = [
   'function isRevoked(uint256 tokenId) public view returns (bool)',
   // AccessControl utility
   'function hasRole(bytes32 role, address account) public view returns (bool)',
+  // Events — needed to recover the real tokenId from a mint receipt
+  'event BadgeMinted(address indexed to, uint256 indexed tokenId, string tokenURI)',
 ] as const;

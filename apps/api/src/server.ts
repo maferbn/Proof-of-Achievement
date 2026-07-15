@@ -5,6 +5,13 @@ import authRoutes from './routes/auth.routes';
 import groupRoutes from './routes/groups.routes';
 import badgeRoutes from './routes/badges.routes';
 
+// Serialize BigInt values (e.g. BadgeAward.onChainTokenId) as JSON strings.
+// express' res.json() uses JSON.stringify, which throws on BigInt by default;
+// the client already accepts onChainTokenId as string | number | null.
+(BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
+  return this.toString();
+};
+
 const app = express();
 
 // Middleware

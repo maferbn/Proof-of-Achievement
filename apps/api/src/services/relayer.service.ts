@@ -25,14 +25,16 @@ export class RelayerService {
   }
 
   /**
-   * Mint a badge to a recipient using the admin's relayer wallet
-   * Returns the transaction hash and expected token ID
+   * Mint a badge to a recipient using the admin's relayer wallet.
+   * Returns the transaction hash. The real on-chain tokenId is recovered later
+   * from the BadgeMinted event via extractMintedTokenId(receipt), once the
+   * transaction has been mined (see the verify-receipt endpoint).
    */
   async mintBadge(
     adminId: string,
     recipientAddress: string,
     metadataURI: string
-  ): Promise<{ transactionHash: string; expectedTokenId: bigint }> {
+  ): Promise<{ transactionHash: string }> {
     // Get relayer wallet for this admin
     const relayerWallet = await prisma.relayerWallet.findUnique({
       where: { adminId },
@@ -58,10 +60,6 @@ export class RelayerService {
     // Create signer from relayer wallet
     const relayerSigner = new ethers.Wallet(relayerPrivateKey, this.provider);
 
-    // Get the current nonce to predict token ID
-    // (This is a simplified approach; in production, consider using events)
-    const currentTokenIdBigInt = await this.getNextTokenId();
-
     // Create contract instance connected to relayer
     const contract = new ethers.Contract(
       config.reputationBadgeContractAddress,
@@ -84,7 +82,6 @@ export class RelayerService {
 
       return {
         transactionHash: tx.hash,
-        expectedTokenId: currentTokenIdBigInt,
       };
     } catch (error: any) {
       console.error('Failed to mint badge:', error);
@@ -93,23 +90,49 @@ export class RelayerService {
   }
 
   /**
-   * Get the next expected token ID (for predicting the ID before tx confirms)
-   * This is a simplified approach; actual ID is confirmed when tx is mined
+   * Recover the real on-chain tokenId from a mint transaction receipt by
+   * parsing the ReputationBadge `BadgeMinted(address,uint256,string)` event.
+   *
+   * Only logs emitted by the configured contract are considered, and — when a
+   * recipient is provided — the event's `to` must match it. Returns null if the
+   * event is not present, so the caller can decide how to handle its absence
+   * (we never fabricate a tokenId).
    */
-  private async getNextTokenId(): Promise<bigint> {
-    try {
-      const contract = new ethers.Contract(
-        config.reputationBadgeContractAddress,
-        ['function _tokenIdCounter() public view returns (uint256)'],
-        this.provider
-      );
-      const currentId = await contract._tokenIdCounter();
-      return BigInt(currentId);
-    } catch (error) {
-      // If counter is not exposed, we can't predict it; caller must wait for tx receipt
-      console.warn('Could not fetch next token ID:', error);
-      return BigInt(0);
+  extractMintedTokenId(
+    receipt: ethers.TransactionReceipt,
+    expectedRecipient?: string
+  ): bigint | null {
+    const contractAddress = config.reputationBadgeContractAddress.toLowerCase();
+
+    for (const log of receipt.logs) {
+      // Ignore logs emitted by other contracts.
+      if (log.address.toLowerCase() !== contractAddress) continue;
+
+      let parsed;
+      try {
+        parsed = this.reputationBadgeContract.interface.parseLog({
+          topics: [...log.topics],
+          data: log.data,
+        });
+      } catch {
+        // Log doesn't match this ABI (e.g. Transfer / Locked) — skip it.
+        continue;
+      }
+
+      if (!parsed || parsed.name !== 'BadgeMinted') continue;
+
+      // When known, make sure the event targets the expected recipient.
+      if (
+        expectedRecipient &&
+        String(parsed.args.to).toLowerCase() !== expectedRecipient.toLowerCase()
+      ) {
+        continue;
+      }
+
+      return BigInt(parsed.args.tokenId);
     }
+
+    return null;
   }
 
   /**
