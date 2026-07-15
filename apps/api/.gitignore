@@ -7,6 +7,7 @@ dist/
 # Testing
 coverage/
 *.db
+prisma/test-client/
 
 # Environment (real secrets)
 .env

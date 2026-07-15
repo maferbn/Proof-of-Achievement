@@ -220,7 +220,9 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       },
     });
 
-    if (existingAward) {
+    const isReassignable = existingAward && (existingAward.status === 'revoked' || existingAward.status === 'failed');
+
+    if (existingAward && !isReassignable) {
       return res.status(409).json({ error: 'Member has already received this badge' });
     }
 
@@ -240,17 +242,31 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
     }
 
     // 7. Save BadgeAward to database (optimistic: assume tx succeeds)
-    const badgeAward = await prisma.badgeAward.create({
-      data: {
-        badgeDefinitionId: badgeDefId,
-        memberId,
-        // Unknown until the tx is mined; the real tokenId is recovered from the
-        // BadgeMinted event in POST /badge-awards/:id/verify-receipt.
-        onChainTokenId: null,
-        transactionHash,
-        status: 'pending', // Will be confirmed once tx is mined
-      },
-    });
+    // If the member previously had this badge revoked or failed, reuse the same row
+    const badgeAward = isReassignable
+      ? await prisma.badgeAward.update({
+          where: { id: existingAward!.id },
+          data: {
+            onChainTokenId: null,
+            transactionHash,
+            status: 'pending',
+            failureReason: null,
+            revokedAt: null,
+            confirmedAt: null,
+            awardedAt: new Date(),
+          },
+        })
+      : await prisma.badgeAward.create({
+          data: {
+            badgeDefinitionId: badgeDefId,
+            memberId,
+            // Unknown until the tx is mined; the real tokenId is recovered from the
+            // BadgeMinted event in POST /badge-awards/:id/verify-receipt.
+            onChainTokenId: null,
+            transactionHash,
+            status: 'pending', // Will be confirmed once tx is mined
+          },
+        });
 
     res.status(201).json({
       badgeAward,

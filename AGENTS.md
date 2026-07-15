@@ -52,16 +52,17 @@ All commands run from the **repo root** using Turbo filters or npm workspaces. T
 | `npx turbo dev --filter=api` | Start dev server on port 3000 (ts-node, no hot reload) |
 | `npx turbo build --filter=api` | `tsc` → `dist/` |
 | `npm start -w apps/api` | Run compiled server (`node dist/server.js`) |
-| `npx turbo test --filter=api` | Jest via ts-jest (29 tests across 4 suites) |
+| `npx turbo test --filter=api` | Jest via ts-jest (7 suites, 66 tests) |
 | `npm run test:watch -w apps/api` | Jest watch mode |
 | `npx turbo lint --filter=api` | `eslint .` (uses root flat config) |
 | `npm run db:migrate -w apps/api` | `prisma migrate dev` (create/apply migrations) |
-| `npx turbo db:generate --filter=api` | `prisma generate` (regenerate Prisma client) |
+| `npx turbo db:generate --filter=api` | `prisma generate` (regenerate Prisma client for PostgreSQL) |
+| `npm run db:generate:test -w apps/api` | `prisma generate` for test SQLite client (run once) |
 | `npx turbo db:push --filter=api` | `prisma db push` (push schema without migrations) |
 | `npm run db:reset -w apps/api` | `prisma migrate reset --force` |
 
 - **Database must exist before running migrations.** Create the PostgreSQL DB manually first.
-- Tests use SQLite (`file:./test.db`) via `.env.test` and a separate `prisma/schema.test.prisma`. A Jest `globalSetup` regenerates the Prisma Client for SQLite before tests. After tests, run `npx turbo db:generate --filter=api` to restore the PostgreSQL client.
+- Tests use SQLite (`file:./test.db`) via a separate `prisma/schema.test.prisma` that generates to `prisma/test-client/` (separate output directory, avoids DLL conflicts on Windows). Jest's `moduleNameMapper` redirects `@prisma/client` imports to the test client during tests. Run `npm run db:generate:test -w apps/api` once to generate it.
 - ESLint uses the root flat config (`eslint.config.js`). The `jest.config.cjs` is ignored.
 - No CI pipelines exist (no `.github/workflows/`).
 - Env vars: see `apps/api/.env.example` — requires `DATABASE_URL`, `SEPOLIA_RPC_URL`, `REPUTATION_BADGE_CONTRACT_ADDRESS`, `DEPLOYER_PRIVATE_KEY`, `ENCRYPTION_MASTER_KEY`, `JWT_SECRET`.

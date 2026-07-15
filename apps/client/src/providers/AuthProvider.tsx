@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useAccount, useSignMessage } from 'wagmi';
+import { useAccount, useDisconnect, useSignMessage } from 'wagmi';
 import { useQueryClient } from '@tanstack/react-query';
 import { AuthContext } from './auth-context';
 import type { AuthStatus } from './auth-context';
@@ -53,6 +53,7 @@ function restoreSession(): StoredSession | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { address, status: accountStatus } = useAccount();
   const { signMessageAsync } = useSignMessage();
+  const { disconnect } = useDisconnect();
   const queryClient = useQueryClient();
 
   const [session, setSession] = useState<StoredSession | null>(() => restoreSession());
@@ -170,8 +171,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     clearSession();
     setError(null);
-    setStatus(accountStatus === 'connected' ? 'unauthenticated' : 'disconnected');
-  }, [clearSession, accountStatus]);
+    setStatus('disconnected');
+    // Fully reset the wallet state so the user returns to Step 1 in a clean state.
+    void disconnect();
+  }, [clearSession, disconnect]);
 
   const clearError = useCallback(() => setError(null), []);
 

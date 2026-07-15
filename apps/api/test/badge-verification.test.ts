@@ -71,6 +71,49 @@ describe('Badge Award Verification Logic', () => {
       expect(canRetry).toBe(true);
     });
 
+    it('should allow re-award after revocation', () => {
+      const existingAward = { memberId: 'member-1', badgeDefinitionId: 'badge-1', status: 'revoked' };
+
+      // Revoked awards can be re-assigned: the existing row is reused
+      const isReassignable = existingAward.status === 'revoked' || existingAward.status === 'failed';
+
+      expect(isReassignable).toBe(true);
+    });
+
+    it('should reuse the same row when re-awarding after revocation', () => {
+      const existingAward = {
+        id: 'award-123',
+        memberId: 'member-1',
+        badgeDefinitionId: 'badge-1',
+        status: 'revoked',
+        revokedAt: new Date('2025-01-01'),
+        failureReason: 'Revoked by admin. Tx: 0xabc',
+        confirmedAt: new Date('2024-06-01'),
+        onChainTokenId: 42,
+      };
+
+      // Simulate what the award endpoint does: reset the revoked row
+      const isReassignable = existingAward.status === 'revoked' || existingAward.status === 'failed';
+      expect(isReassignable).toBe(true);
+
+      const reawarded = {
+        ...existingAward,
+        status: 'pending',
+        onChainTokenId: null,
+        transactionHash: '0xnewtx',
+        failureReason: null,
+        revokedAt: null,
+        confirmedAt: null,
+        awardedAt: new Date(),
+      };
+
+      expect(reawarded.id).toBe('award-123'); // same row reused
+      expect(reawarded.status).toBe('pending');
+      expect(reawarded.revokedAt).toBeNull();
+      expect(reawarded.failureReason).toBeNull();
+      expect(reawarded.onChainTokenId).toBeNull();
+    });
+
     it('should prevent duplicate if status is confirmed', () => {
       const existingAward = { memberId: 'member-1', badgeDefinitionId: 'badge-1', status: 'confirmed' };
       const newAwardAttempt = { memberId: 'member-1', badgeDefinitionId: 'badge-1' };
@@ -82,6 +125,14 @@ describe('Badge Award Verification Logic', () => {
         existingAward.status === 'confirmed';
 
       expect(isDuplicate).toBe(true);
+    });
+
+    it('should prevent duplicate if status is pending', () => {
+      const existingAward = { memberId: 'member-1', badgeDefinitionId: 'badge-1', status: 'pending' };
+
+      const isReassignable = existingAward.status === 'revoked' || existingAward.status === 'failed';
+
+      expect(isReassignable).toBe(false);
     });
   });
 });

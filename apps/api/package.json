@@ -12,6 +12,7 @@
     "test:watch": "npm run db:push:test && jest --watch",
     "db:push:test": "cross-env DATABASE_URL=file:./test.db prisma db push --schema=prisma/schema.test.prisma --skip-generate --accept-data-loss",
     "db:generate": "prisma generate",
+    "db:generate:test": "prisma generate --schema=prisma/schema.test.prisma",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
