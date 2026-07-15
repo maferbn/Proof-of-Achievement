@@ -5,11 +5,11 @@
     "module": "Node16",
     "lib": ["ES2020"],
     "outDir": "./dist",
-    "rootDir": "./src",
     "moduleResolution": "node16",
+    "types": ["node", "jest"],
     "composite": false,
     "incremental": false
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "test"]
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
