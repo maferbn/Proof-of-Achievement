@@ -1,10 +1,12 @@
-import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 export default async function globalSetup() {
-  // Regenerate Prisma Client from the SQLite test schema so it accepts file: URLs
-  process.env.DATABASE_URL = 'file:./test.db';
-  execSync('npx prisma generate --schema=prisma/schema.test.prisma', {
-    cwd: __dirname + '/..',
-    stdio: 'inherit',
-  });
+  // Ensure test client has been generated (run `npm run db:generate:test` once)
+  const testClientDir = path.join(__dirname, '..', 'prisma', 'test-client');
+  if (!fs.existsSync(testClientDir)) {
+    throw new Error(
+      'Test Prisma client not found. Run `npm run db:generate:test` in apps/api first.'
+    );
+  }
 }
