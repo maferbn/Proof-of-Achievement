@@ -12,6 +12,7 @@ export default tseslint.config(
       '**/artifacts/**',
       '**/cache/**',
       '**/typechain-types/**',
+      '**/prisma/test-client/**',
       '**/node_modules/**',
       '**/jest.config.*',
     ],
