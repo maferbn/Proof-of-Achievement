@@ -47,10 +47,12 @@ proof-of-achievement/
 ## 2. Stack Tecnológico
 
 - **Monorepo**: Turborepo + npm workspaces.
-- **Smart Contracts**: Hardhat + Solidity + OpenZeppelin.
+- **Smart Contracts**: Hardhat + Solidity + OpenZeppelin (ERC-721 + ERC-5192 + AccessControl).
 - **Frontend**: React + TypeScript + Vite + Wagmi + RainbowKit + Viem.
 - **Backend**: Express/Node.js + Prisma ORM + Supabase (PostgreSQL) + Ethers.js.
-- **Metadata**: Almacenamiento descentralizado en IPFS.
+- **Oráculo**: Validación off-chain simulada (`validation.service.ts`).
+- **Metadata**: Almacenamiento descentralizado en IPFS (Pinata).
+- **Indexación**: Event indexer automático para sincronización on-chain ↔ DB.
 
 ---
 
@@ -64,6 +66,7 @@ Antes de empezar, asegúrate de tener instalado:
 | npm | `>= 10` | Viene con Node.js 20+ |
 | Cuenta en Supabase | — | Base de datos PostgreSQL en la nube (recomendado) |
 | PostgreSQL local | `>= 14` | Alternativa si prefieres correrlo localmente |
+| Cuenta en Pinata | — | Gateway IPFS para almacenar metadata de badges (gratis hasta 1GB) |
 | Git | Cualquier versión reciente | |
 
 ### Herramientas opcionales pero recomendadas
@@ -121,6 +124,8 @@ Completa al menos estas variables:
 | `DEPLOYER_PRIVATE_KEY` | Llave privada de la wallet que desplegó el contrato | De tu wallet (MetaMask, etc.) |
 | `ENCRYPTION_MASTER_KEY` | Clave maestra para encriptar relayers | Genera con: `node -e "console.log('0x' + require('crypto').randomBytes(32).toString('hex'))"` |
 | `JWT_SECRET` | Secreto para firmar JWT | Genera con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `PINATA_JWT` | JWT de Pinata para subir metadata a IPFS | Genera una API key en https://app.pinata.cloud (opcional, IPFS se omite si no se configura) |
+| `PINATA_GATEWAY` | Gateway para resolver URIs IPFS | Por defecto: `https://gateway.pinata.cloud` |
 
 #### Contratos (`packages/contracts/.env`)
 
@@ -284,23 +289,26 @@ npm run deploy:sepolia -w packages/contracts
 
 ---
 
-## 6. Funcionalidades Pendientes (Próximas Fases)
+## 6. Estado de Funcionalidades
 
 ### 💻 Backend API (`apps/api/`) — **Implementado**
-- [x] **Configuración Inicial**: Express, CORS, variables de entorno.
+- [x] **Configuración Inicial**: Express, CORS, variables de entorno, health check con estado de servicios.
 - [x] **Persistencia (Prisma & PostgreSQL)**: Schema con 7 modelos, migraciones, soporte SQLite para tests.
-- [x] **Servicio de Blockchain**: Interacción con ReputationBadge.sol vía Ethers.js (mint, grantMinter, revokeMinter, hasRole).
+- [x] **Servicio de Blockchain**: Interacción con ReputationBadge.sol vía Ethers.js (mint, grantMinter, revokeMinter, hasRole, revokeBadge, isRevoked).
 - [x] **Autenticación (SIWE + JWT)**: Login con billetera Ethereum, nonces anti-replay, tokens JWT.
 - [x] **Relayer Wallets**: Gestión de wallets por admin, encriptación AES-256-GCM de llaves privadas.
-- [x] **API REST**: Endpoints para grupos, miembros, badge definitions, badge awards y verificación de transacciones.
-- [ ] **Servicio IPFS (`ipfs.service.ts`)**:
-  - Integrar la subida y almacenamiento de metadatos del logro e imágenes a servicios como Pinata o Web3.Storage.
+- [x] **Oráculo Simulado (`validation.service.ts`)**: Validación off-chain de evidencias antes de emitir badges. Soporte para múltiples tipos: cursos, juegos, exámenes, contribuciones.
+- [x] **Servicio IPFS (`ipfs.service.ts`)**: Subida de metadata e imágenes a IPFS vía Pinata. Endpoint `POST /badges/metadata`.
+- [x] **Event Indexer (`event-indexer.service.ts`)**: Background job que sincroniza eventos on-chain (`BadgeMinted`, `BadgeRevoked`) con la base de datos automáticamente vía polling.
+- [x] **ABI Compartido**: ABI del contrato centralizada en `@repo/shared-types`, consumida por API y cliente.
+- [x] **API REST**: Endpoints para grupos, miembros, badge definitions, badge awards, validación, IPFS metadata, revocación y verificación de transacciones.
+- [x] **Tests**: 63 tests unitarios e integración (7 suites).
 
 ### 🔗 Blockchain & Contratos
-- [ ] **Implementar estándar ERC-5192**:
-  - Extender el contrato actual `ReputationBadge.sol` para implementar formalmente las interfaces ERC-5192 (`IERC5192` con soporte para eventos `Locked`/`Unlocked`).
-- [ ] **Script de despliegue final**:
-  - Automatizar el despliegue del contrato en la red de pruebas Sepolia configurando variables de entorno dinámicas.
+- [x] **Estándar ERC-5192**: `ReputationBadge.sol` implementa `IERC5192` con `locked()`, eventos `Locked`/`Unlocked` y `supportsInterface`.
+- [x] **Revocación de Badges**: Funciones `revokeBadge(tokenId)` e `isRevoked(tokenId)` con eventos `BadgeRevoked`.
+- [x] **Script de despliegue**: Despliegue automatizado en localhost (Hardhat) y Sepolia.
+- [ ] **Recuperación institucional ante pérdida de claves**: Función `recoverSBT` controlada por `DEFAULT_ADMIN_ROLE` (propuesto en Anteproyecto V2).
 
 ### 🎨 Frontend (`apps/client/`)
 - [ ] **Conexión API**:
@@ -309,3 +317,32 @@ npm run deploy:sepolia -w packages/contracts
   - Implementar flujo de inicio de sesión con billetera (Sign-In with Ethereum) para asegurar que solo los dueños de la cuenta puedan solicitar o ver sus perfiles de forma autorizada.
 - [ ] **Panel de Administración**:
   - Crear la UI para organizaciones, que les permita crear nuevos Grupos, Proyectos y registrar Logros con sus respectivas imágenes y descripciones.
+
+---
+
+## 7. Arquitectura del Backend
+
+### Flujo de emisión de badges
+
+1. **Admin** se autentica con SIWE (firma con su wallet) → obtiene JWT
+2. **Admin** inicializa su relayer wallet → backend genera wallet, encripta llave, otorga `MINTER_ROLE` on-chain
+3. **Admin** crea grupo y agrega miembros
+4. **Admin** crea badge definition → metadata se sube a IPFS (si `PINATA_JWT` está configurado)
+5. **Admin** valida evidencia del miembro → `POST /badge-definitions/:id/validate` (oráculo simulado)
+6. **Admin** emite badge → `POST /badge-definitions/:id/award`
+   - Backend valida ownership, membresía, evidencia
+   - Relayer wallet firma `mint(recipiente, metadataURI)` on-chain
+   - BadgeAward se guarda con `status: 'pending'`
+7. **Event Indexer** detecta `BadgeMinted` → actualiza `status: 'confirmed'` automáticamente
+8. **Admin** puede revocar → `POST /badge-awards/:id/revoke` (deployer firma `revokeBadge`)
+
+### Servicios del backend
+
+| Servicio | Archivo | Responsabilidad |
+|----------|---------|-----------------|
+| Auth | `auth.service.ts` | SIWE, JWT, nonces anti-replay |
+| Wallet | `wallet.service.ts` | Generar y encriptar relayer wallets |
+| Relayer | `relayer.service.ts` | Mint on-chain, MINTER_ROLE, revokeBadge |
+| Validation | `validation.service.ts` | Oráculo simulado: valida evidencias off-chain |
+| IPFS | `ipfs.service.ts` | Subir metadata e imágenes a Pinata |
+| Event Indexer | `event-indexer.service.ts` | Sincronizar eventos on-chain con DB (polling 30s) |

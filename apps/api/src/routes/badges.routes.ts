@@ -1,13 +1,17 @@
 import { Router, Response } from 'express';
+import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
 import { AuthenticatedRequest, authMiddleware, checkOwnership } from '../middleware/auth.middleware';
 import { relayerService } from '../services/relayer.service';
+import { validationService } from '../services/validation.service';
+import { ipfsService, BadgeMetadata } from '../services/ipfs.service';
 import { ethers } from 'ethers';
 import { config } from '../config';
 
 const router = Router();
 const prisma = new PrismaClient();
 const provider = new ethers.JsonRpcProvider(config.sepoliaRpcUrl);
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 /**
  * POST /badge-definitions
@@ -48,6 +52,68 @@ router.post('/badge-definitions', authMiddleware, async (req: AuthenticatedReque
 });
 
 /**
+ * POST /badges/metadata
+ * Upload badge metadata (and optional image) to IPFS via Pinata.
+ * Returns the ipfs:// URI that can be stored in a BadgeDefinition.
+ *
+ * Requires PINATA_JWT to be configured. If not set, returns 503.
+ *
+ * Accepts:
+ * - JSON body: { name, description, attributes }
+ * - Multipart form: image file + name, description, attributes fields
+ */
+router.post('/badges/metadata', authMiddleware, upload.single('image'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!ipfsService.isConfigured()) {
+      return res.status(503).json({
+        error: 'IPFS is not configured. Set PINATA_JWT in your environment.',
+      });
+    }
+
+    const { name, description, attributes } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Missing "name"' });
+    }
+
+    // 1. Upload image if provided
+    let imageUri: string | undefined;
+    if (req.file) {
+      imageUri = await ipfsService.uploadFile(req.file.buffer, req.file.originalname);
+    }
+
+    // 2. Build metadata object
+    let parsedAttributes: Array<{ trait_type: string; value: string }> | undefined;
+    if (attributes) {
+      try {
+        parsedAttributes = typeof attributes === 'string' ? JSON.parse(attributes) : attributes;
+      } catch {
+        return res.status(400).json({ error: 'Invalid "attributes" format (must be JSON array)' });
+      }
+    }
+
+    const metadata: BadgeMetadata = {
+      name,
+      description: description || undefined,
+      image: imageUri,
+      attributes: parsedAttributes,
+    };
+
+    // 3. Upload metadata JSON to IPFS
+    const metadataUri = await ipfsService.uploadJSON(metadata);
+
+    res.json({
+      metadataUri,
+      gatewayUrl: ipfsService.toGatewayUrl(metadataUri),
+      imageUri,
+    });
+  } catch (error: any) {
+    console.error('Error uploading metadata to IPFS:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /badge-definitions/:id
  * Get badge definition details (public)
  */
@@ -79,15 +145,16 @@ router.get('/badge-definitions/:id', async (req: AuthenticatedRequest, res: Resp
  * Validation flow:
  * 1. Admin owns this badge definition's group
  * 2. Member belongs to that group
- * 3. Relayer wallet is active (MINTER_ROLE granted)
- * 4. Member hasn't already received this exact badge
- * 5. If all pass: mint on-chain, then save BadgeAward to DB
+ * 3. Evidence passes oracle validation (if provided)
+ * 4. Relayer wallet is active (MINTER_ROLE granted)
+ * 5. Member hasn't already received this exact badge
+ * 6. If all pass: mint on-chain, then save BadgeAward to DB
  */
 router.post('/badge-definitions/:id/award', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const adminId = req.adminId!;
     const { id: badgeDefId } = req.params;
-    const { memberId } = req.body;
+    const { memberId, evidence } = req.body;
 
     if (!memberId) {
       return res.status(400).json({ error: 'Missing "memberId"' });
@@ -116,7 +183,23 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       return res.status(403).json({ error: 'Member does not belong to the required group' });
     }
 
-    // 3. Check relayer wallet is active
+    // 3. Oracle validation: validate evidence if provided
+    if (evidence) {
+      const validationResult = await validationService.validateAchievement(
+        memberId,
+        badgeDefId,
+        evidence
+      );
+
+      if (!validationResult.valid) {
+        return res.status(400).json({
+          error: 'Evidence validation failed',
+          reason: validationResult.reason,
+        });
+      }
+    }
+
+    // 4. Check relayer wallet is active
     const relayerWallet = await prisma.relayerWallet.findUnique({
       where: { adminId },
     });
@@ -127,7 +210,7 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       });
     }
 
-    // 4. Check member hasn't already received this badge
+    // 5. Check member hasn't already received this badge
     const existingAward = await prisma.badgeAward.findUnique({
       where: {
         memberId_badgeDefinitionId: {
@@ -141,7 +224,7 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       return res.status(409).json({ error: 'Member has already received this badge' });
     }
 
-    // 5. Mint on-chain
+    // 6. Mint on-chain
     let transactionHash: string;
 
     try {
@@ -156,7 +239,7 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       });
     }
 
-    // 6. Save BadgeAward to database (optimistic: assume tx succeeds)
+    // 7. Save BadgeAward to database (optimistic: assume tx succeeds)
     const badgeAward = await prisma.badgeAward.create({
       data: {
         badgeDefinitionId: badgeDefId,
@@ -175,6 +258,59 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
     });
   } catch (error: any) {
     console.error('Unexpected error in award endpoint:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /badge-definitions/:id/validate
+ * Simulated Oracle: Validates whether a member is eligible to receive a badge.
+ * Checks: member existence, group membership, badge uniqueness, and evidence.
+ * Does NOT mint on-chain — call /award afterwards to mint.
+ */
+router.post('/badge-definitions/:id/validate', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.adminId!;
+    const { id: badgeDefId } = req.params;
+    const { memberId, evidence } = req.body;
+
+    if (!memberId) {
+      return res.status(400).json({ error: 'Missing "memberId"' });
+    }
+
+    // 1. Get badge definition and check admin ownership
+    const badgeDef = await prisma.badgeDefinition.findUnique({
+      where: { id: badgeDefId },
+      include: { group: true },
+    });
+
+    if (!badgeDef) {
+      return res.status(404).json({ error: 'Badge definition not found' });
+    }
+
+    if (!checkOwnership(badgeDef.adminId, adminId)) {
+      return res.status(403).json({ error: 'Not authorized to validate this badge' });
+    }
+
+    // 2. Run oracle validation
+    const validationResult = await validationService.validateAchievement(
+      memberId,
+      badgeDefId,
+      evidence
+    );
+
+    res.json({
+      valid: validationResult.valid,
+      reason: validationResult.reason,
+      validatedAt: validationResult.validatedAt,
+      memberId,
+      badgeDefinitionId: badgeDefId,
+      message: validationResult.valid
+        ? 'Member is eligible to receive this badge'
+        : `Validation failed: ${validationResult.reason}`,
+    });
+  } catch (error: any) {
+    console.error('Unexpected error in validate endpoint:', error);
     res.status(500).json({ error: error.message });
   }
 });
