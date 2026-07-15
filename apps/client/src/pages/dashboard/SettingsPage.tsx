@@ -4,6 +4,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Button, Card } from '../../components/ui';
 import { WalletAddress } from '../../components/web3/WalletAddress';
 import { RelayerStatusCard } from '../../features/relayer/RelayerStatusCard';
+import { ServicesStatusCard } from '../../features/settings/ServicesStatusCard';
 import { useAuth } from '../../providers/auth-context';
 import { env } from '../../config/env';
 
@@ -23,6 +24,8 @@ export function SettingsPage() {
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', alignItems: 'start' }}
       >
         <RelayerStatusCard />
+
+        <ServicesStatusCard />
 
         <Card padded className="flex-col gap-4">
           <div className="flex items-center gap-2">

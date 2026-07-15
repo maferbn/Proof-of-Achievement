@@ -2,8 +2,11 @@ import { apiClient } from './client';
 import type {
   AwardResponse,
   BadgeDefinition,
+  BadgeMetadataUploadResponse,
+  Evidence,
   MemberBadgesResponse,
   RevokeResponse,
+  ValidationResponse,
   VerifyReceiptResponse,
 } from '../types/api';
 
@@ -12,6 +15,18 @@ export interface BadgeDefinitionInput {
   name: string;
   description?: string;
   imageURI?: string;
+}
+
+export interface MetadataUploadInput {
+  name: string;
+  description?: string;
+  image?: File;
+  attributes?: Array<{ trait_type: string; value: string }>;
+}
+
+export interface AwardInput {
+  memberId: string;
+  evidence?: Evidence;
 }
 
 export const badgesApi = {
@@ -31,11 +46,30 @@ export const badgesApi = {
   listByMember: (memberId: string) =>
     apiClient.get<MemberBadgesResponse>(`/members/${memberId}/badges`, { auth: false }),
 
-  /** POST /badge-definitions/:id/award — protected. */
-  award: (badgeDefinitionId: string, memberId: string) =>
-    apiClient.post<AwardResponse>(`/badge-definitions/${badgeDefinitionId}/award`, { memberId }),
+  /** POST /badges/metadata — protected, multipart. Uploads image + metadata to IPFS. */
+  uploadMetadata: (input: MetadataUploadInput) => {
+    const fd = new FormData();
+    fd.append('name', input.name);
+    if (input.description) fd.append('description', input.description);
+    if (input.attributes && input.attributes.length > 0) {
+      fd.append('attributes', JSON.stringify(input.attributes));
+    }
+    if (input.image) fd.append('image', input.image);
+    return apiClient.post<BadgeMetadataUploadResponse>('/badges/metadata', fd);
+  },
 
-  /** POST /badge-awards/:id/verify-receipt — protected. */
+  /** POST /badge-definitions/:id/validate — protected. Oracle eligibility check. */
+  validate: (badgeDefinitionId: string, input: AwardInput) =>
+    apiClient.post<ValidationResponse>(
+      `/badge-definitions/${badgeDefinitionId}/validate`,
+      input,
+    ),
+
+  /** POST /badge-definitions/:id/award — protected. Evidence is optional. */
+  award: (badgeDefinitionId: string, input: AwardInput) =>
+    apiClient.post<AwardResponse>(`/badge-definitions/${badgeDefinitionId}/award`, input),
+
+  /** POST /badge-awards/:id/verify-receipt — protected (manual fallback). */
   verifyReceipt: (badgeAwardId: string) =>
     apiClient.post<VerifyReceiptResponse>(`/badge-awards/${badgeAwardId}/verify-receipt`),
 

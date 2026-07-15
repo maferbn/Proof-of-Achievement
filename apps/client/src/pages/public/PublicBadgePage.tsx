@@ -5,6 +5,7 @@ import { BadgeImage } from '../../components/web3/BadgeImage';
 import { SoulboundTag } from '../../components/web3/SoulboundTag';
 import { WalletAddress } from '../../components/web3/WalletAddress';
 import { TransactionHash } from '../../components/web3/TransactionHash';
+import { TokenId } from '../../components/web3/TokenId';
 import { useBadgeDefinition, useGroupBadges } from '../../hooks/useBadges';
 import { pluralize } from '../../utils/format';
 
@@ -105,7 +106,9 @@ export function PublicBadgePage() {
                   <td>
                     <AwardStatusBadge status={a.status} />
                   </td>
-                  <td className="mono text-muted">{a.onChainTokenId != null ? `#${a.onChainTokenId}` : '—'}</td>
+                  <td>
+                    <TokenId value={a.onChainTokenId} status={a.status} />
+                  </td>
                   <td>
                     <TransactionHash hash={a.transactionHash} chars={4} />
                   </td>

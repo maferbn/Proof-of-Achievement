@@ -11,3 +11,9 @@ export const groupBadgesKey = (groupId: string) => ['groups', groupId, 'badges']
 export const badgeDefinitionKey = (id: string) => ['badge-definitions', id] as const;
 
 export const memberBadgesKey = (memberId: string) => ['members', memberId, 'badges'] as const;
+
+/** Backend health / service status. */
+export const healthKey = ['health'] as const;
+
+/** Resolved badge image for a given imageURI (metadata JSON or direct image). */
+export const ipfsMetadataKey = (uri: string) => ['ipfs-metadata', uri] as const;

@@ -3,6 +3,7 @@ import { Search, Ban, BadgeCheck } from 'lucide-react';
 import { AwardStatusBadge, Button, EmptyState } from '../../components/ui';
 import { WalletAddress } from '../../components/web3/WalletAddress';
 import { TransactionHash } from '../../components/web3/TransactionHash';
+import { TokenId } from '../../components/web3/TokenId';
 import { RevokeBadgeDialog } from './RevokeBadgeDialog';
 import { useVerifyReceipt } from '../../hooks/useBadges';
 import { useToast } from '../../providers/toast-context';
@@ -76,7 +77,9 @@ export function AwardsTable({ awards, groupId, badgeName }: AwardsTableProps) {
                   <td>
                     <AwardStatusBadge status={a.status} />
                   </td>
-                  <td className="mono text-muted">{a.onChainTokenId != null ? `#${a.onChainTokenId}` : '—'}</td>
+                  <td>
+                    <TokenId value={a.onChainTokenId} status={a.status} />
+                  </td>
                   <td>
                     <TransactionHash hash={a.transactionHash} chars={4} />
                   </td>
@@ -89,8 +92,9 @@ export function AwardsTable({ awards, groupId, badgeName }: AwardsTableProps) {
                           onClick={() => runVerify(a)}
                           loading={verifyingId === a.id}
                           leftIcon={<Search size={14} />}
+                          title="La confirmación es automática; usa esto para forzar una comprobación."
                         >
-                          Verificar
+                          Verificar ahora
                         </Button>
                       )}
                       {canRevoke && (

@@ -1,13 +1,6 @@
 import { useState } from 'react';
 import { BadgeCheck } from 'lucide-react';
-
-function resolveUri(uri: string): string | null {
-  const v = uri.trim();
-  if (!v) return null;
-  if (v.startsWith('ipfs://')) return `https://ipfs.io/ipfs/${v.slice('ipfs://'.length)}`;
-  if (v.startsWith('http://') || v.startsWith('https://')) return v;
-  return null; // unknown scheme (e.g. metadata JSON) → show placeholder
-}
+import { useResolvedBadgeImage } from '../../hooks/useIpfsMetadata';
 
 interface BadgeImageProps {
   uri?: string | null;
@@ -15,10 +8,14 @@ interface BadgeImageProps {
   radius?: string;
 }
 
-/** Renders a badge image, resolving ipfs:// and falling back to a gradient mark. */
+/**
+ * Renders a badge image. `uri` may be a direct image (ipfs:// or http) or an
+ * ERC-721 metadata JSON whose `image` field points to the real image; both are
+ * resolved via useResolvedBadgeImage. Falls back to a gradient mark.
+ */
 export function BadgeImage({ uri, size = 56, radius = 'var(--r-md)' }: BadgeImageProps) {
+  const { data: src, isLoading } = useResolvedBadgeImage(uri);
   const [failed, setFailed] = useState(false);
-  const src = uri ? resolveUri(uri) : null;
 
   const box = {
     width: size,
@@ -27,15 +24,15 @@ export function BadgeImage({ uri, size = 56, radius = 'var(--r-md)' }: BadgeImag
     flexShrink: 0,
   } as const;
 
+  if (uri && isLoading) {
+    return <span className="skeleton" style={box} aria-hidden />;
+  }
+
   if (!src || failed) {
     return (
       <div
         className="flex items-center justify-center"
-        style={{
-          ...box,
-          background: 'var(--brand-gradient)',
-          color: '#fff',
-        }}
+        style={{ ...box, background: 'var(--brand-gradient)', color: '#fff' }}
         aria-hidden
       >
         <BadgeCheck size={typeof size === 'number' ? size * 0.5 : 28} />

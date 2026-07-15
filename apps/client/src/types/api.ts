@@ -132,3 +132,54 @@ export interface MemberBadgesResponse {
   member: Pick<Member, 'id' | 'walletAddress' | 'displayName'>;
   badges: BadgeAward[];
 }
+
+/* ---------------- New backend capabilities (develop) ---------------- */
+
+/** POST /badges/metadata — uploads image + metadata JSON to IPFS (Pinata). */
+export interface BadgeMetadataUploadResponse {
+  /** ipfs:// URI of the metadata JSON — stored as BadgeDefinition.imageURI. */
+  metadataUri: string;
+  /** HTTP gateway URL for the metadata JSON. */
+  gatewayUrl: string;
+  /** ipfs:// URI of the uploaded image, if one was provided. */
+  imageUri?: string;
+}
+
+/** ERC-721-style metadata JSON that a BadgeDefinition.imageURI may point to. */
+export interface BadgeMetadataJson {
+  name?: string;
+  description?: string;
+  image?: string;
+  attributes?: Array<{ trait_type: string; value: string }>;
+}
+
+/** Evidence types accepted by the backend oracle validator. */
+export type EvidenceType =
+  | 'course_completion'
+  | 'game_win'
+  | 'exam_pass'
+  | 'contribution'
+  | 'generic';
+
+export interface Evidence {
+  type: EvidenceType;
+  data: Record<string, unknown>;
+}
+
+/** POST /badge-definitions/:id/validate */
+export interface ValidationResponse {
+  valid: boolean;
+  reason?: string;
+  validatedAt?: string;
+  memberId: string;
+  badgeDefinitionId: string;
+  message: string;
+}
+
+/** GET /health — public. Fields beyond `status` may be absent on older servers. */
+export interface HealthResponse {
+  status: string;
+  timestamp?: string;
+  eventIndexer?: string;
+  ipfs?: string;
+}

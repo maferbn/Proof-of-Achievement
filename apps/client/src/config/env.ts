@@ -6,6 +6,8 @@
 
 const rawApiUrl = import.meta.env.VITE_API_URL?.trim() || 'http://localhost:3000';
 
+const rawGateway = import.meta.env.VITE_IPFS_GATEWAY?.trim() || 'https://ipfs.io/ipfs/';
+
 export const env = {
   /** Base URL of the Express API (no trailing slash). */
   apiUrl: rawApiUrl.replace(/\/+$/, ''),
@@ -16,6 +18,8 @@ export const env = {
   /** WalletConnect project id (falls back to a public demo id). */
   walletConnectProjectId:
     import.meta.env.VITE_WALLETCONNECT_PROJECT_ID?.trim() || 'proof_of_achievement_demo',
+  /** IPFS HTTP gateway base, always ending with a trailing slash. */
+  ipfsGateway: rawGateway.endsWith('/') ? rawGateway : `${rawGateway}/`,
 } as const;
 
 /** Block explorer base per chain id (used for tx / address links). */

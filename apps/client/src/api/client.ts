@@ -58,8 +58,11 @@ interface RequestOptions {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true, signal } = options;
 
+  // FormData must be sent as-is so the browser sets the multipart boundary.
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined && !isFormData) headers['Content-Type'] = 'application/json';
 
   if (auth) {
     const token = tokenGetter();
@@ -71,7 +74,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     res = await fetch(`${env.apiUrl}${path}`, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : isFormData ? (body as FormData) : JSON.stringify(body),
       signal,
     });
   } catch (err) {

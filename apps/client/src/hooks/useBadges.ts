@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { badgesApi } from '../api/badges.api';
-import type { BadgeDefinitionInput } from '../api/badges.api';
+import type { AwardInput, BadgeDefinitionInput, MetadataUploadInput } from '../api/badges.api';
 import {
   badgeDefinitionKey,
   groupBadgesKey,
@@ -8,14 +8,26 @@ import {
   groupsKey,
   memberBadgesKey,
 } from './queryKeys';
-import type { BadgeDefinition, MemberBadgesResponse } from '../types/api';
+import type { BadgeAward, BadgeDefinition, Evidence, MemberBadgesResponse } from '../types/api';
 
-/** GET /groups/:groupId/badges — public. */
+/** Poll interval (ms) used while at least one award is still pending. */
+const PENDING_POLL_MS = 5_000;
+
+function anyPending(awards: BadgeAward[] | undefined): boolean {
+  return !!awards?.some((a) => a.status === 'pending');
+}
+
+/** GET /groups/:groupId/badges — public. Polls while any award is pending. */
 export function useGroupBadges(groupId: string | undefined) {
   return useQuery<BadgeDefinition[]>({
     queryKey: groupBadgesKey(groupId ?? ''),
     queryFn: () => badgesApi.listByGroup(groupId as string),
     enabled: !!groupId,
+    refetchInterval: (query) => {
+      const data = query.state.data as BadgeDefinition[] | undefined;
+      const pending = data?.some((def) => anyPending(def.badgeAwards));
+      return pending ? PENDING_POLL_MS : false;
+    },
   });
 }
 
@@ -28,12 +40,16 @@ export function useBadgeDefinition(id: string | undefined) {
   });
 }
 
-/** GET /members/:memberId/badges — public. */
+/** GET /members/:memberId/badges — public. Polls while any award is pending. */
 export function useMemberBadges(memberId: string | undefined) {
   return useQuery<MemberBadgesResponse>({
     queryKey: memberBadgesKey(memberId ?? ''),
     queryFn: () => badgesApi.listByMember(memberId as string),
     enabled: !!memberId,
+    refetchInterval: (query) => {
+      const data = query.state.data as MemberBadgesResponse | undefined;
+      return anyPending(data?.badges) ? PENDING_POLL_MS : false;
+    },
   });
 }
 
@@ -49,8 +65,34 @@ export function useCreateBadgeDefinition() {
   });
 }
 
+/** POST /badges/metadata — uploads image + metadata JSON to IPFS. */
+export function useUploadMetadata() {
+  return useMutation({
+    mutationFn: (input: MetadataUploadInput) => badgesApi.uploadMetadata(input),
+  });
+}
+
+/** POST /badge-definitions/:id/validate — oracle eligibility check (no state change). */
+export function useValidateEvidence() {
+  return useMutation({
+    mutationFn: ({
+      badgeDefinitionId,
+      memberId,
+      evidence,
+    }: {
+      badgeDefinitionId: string;
+      memberId: string;
+      evidence?: Evidence;
+    }) => badgesApi.validate(badgeDefinitionId, { memberId, evidence }),
+  });
+}
+
 /** Invalidate everything touched when a badge is awarded/verified/revoked. */
-function invalidateAwardScopes(qc: ReturnType<typeof useQueryClient>, groupId?: string) {
+function invalidateAwardScopes(
+  qc: ReturnType<typeof useQueryClient>,
+  groupId?: string,
+  memberId?: string,
+) {
   if (groupId) {
     qc.invalidateQueries({ queryKey: groupBadgesKey(groupId) });
     qc.invalidateQueries({ queryKey: groupKey(groupId) });
@@ -58,7 +100,9 @@ function invalidateAwardScopes(qc: ReturnType<typeof useQueryClient>, groupId?: 
     // Group unknown: refresh all group-badge queries.
     qc.invalidateQueries({ queryKey: ['groups'] });
   }
-  qc.invalidateQueries({ queryKey: ['members'] });
+  // Refresh the specific member's public profile when we know who it is.
+  if (memberId) qc.invalidateQueries({ queryKey: memberBadgesKey(memberId) });
+  else qc.invalidateQueries({ queryKey: ['members'] });
 }
 
 export function useAwardBadge(groupId?: string) {
@@ -67,13 +111,15 @@ export function useAwardBadge(groupId?: string) {
     mutationFn: ({
       badgeDefinitionId,
       memberId,
+      evidence,
     }: {
       badgeDefinitionId: string;
       memberId: string;
-    }) => badgesApi.award(badgeDefinitionId, memberId),
+      evidence?: Evidence;
+    }) => badgesApi.award(badgeDefinitionId, { memberId, evidence } as AwardInput),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: badgeDefinitionKey(res.badgeAward.badgeDefinitionId) });
-      invalidateAwardScopes(qc, groupId);
+      invalidateAwardScopes(qc, groupId, res.badgeAward.memberId);
     },
   });
 }
@@ -84,7 +130,7 @@ export function useVerifyReceipt(groupId?: string) {
     mutationFn: (badgeAwardId: string) => badgesApi.verifyReceipt(badgeAwardId),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: badgeDefinitionKey(res.badgeAward.badgeDefinitionId) });
-      invalidateAwardScopes(qc, groupId);
+      invalidateAwardScopes(qc, groupId, res.badgeAward.memberId);
     },
   });
 }
@@ -95,7 +141,7 @@ export function useRevokeBadge(groupId?: string) {
     mutationFn: (badgeAwardId: string) => badgesApi.revoke(badgeAwardId),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: badgeDefinitionKey(res.badgeAward.badgeDefinitionId) });
-      invalidateAwardScopes(qc, groupId);
+      invalidateAwardScopes(qc, groupId, res.badgeAward.memberId);
     },
   });
 }

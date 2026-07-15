@@ -21,6 +21,7 @@ import { BadgeImage } from '../../components/web3/BadgeImage';
 import { WalletAddress } from '../../components/web3/WalletAddress';
 import { TransactionHash } from '../../components/web3/TransactionHash';
 import { SoulboundTag } from '../../components/web3/SoulboundTag';
+import { TokenId } from '../../components/web3/TokenId';
 import { useMemberBadges } from '../../hooks/useBadges';
 import { formatDate, pluralize } from '../../utils/format';
 import type { BadgeAward, Group } from '../../types/api';
@@ -299,11 +300,7 @@ function AchievementCard({ award }: { award: BadgeAward }) {
       >
         <InfoLine label="Emitido">{formatDate(award.awardedAt ?? award.createdAt)}</InfoLine>
         <InfoLine label="Token ID">
-          {award.onChainTokenId != null ? (
-            <span className="mono">#{award.onChainTokenId}</span>
-          ) : (
-            <span className="text-muted">—</span>
-          )}
+          <TokenId value={award.onChainTokenId} status={award.status} />
         </InfoLine>
         <InfoLine label="Transacción">
           <TransactionHash hash={award.transactionHash} chars={4} />
