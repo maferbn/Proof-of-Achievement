@@ -74,7 +74,11 @@ export class ValidationService {
       },
     });
 
-    if (existingAward) {
+    const isReassignable =
+      existingAward &&
+      (existingAward.status === 'revoked' || existingAward.status === 'failed');
+
+    if (existingAward && !isReassignable) {
       return {
         valid: false,
         reason: 'Member already has this badge',

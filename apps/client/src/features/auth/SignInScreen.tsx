@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ConnectButton, useConnectModal } from '@rainbow-me/rainbowkit';
+import { useDisconnect } from 'wagmi';
 import { Link } from 'react-router-dom';
 import { Wallet, PenLine, ShieldCheck, AlertCircle, ArrowLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -10,6 +11,8 @@ import { useAuth } from '../../providers/auth-context';
 
 export function SignInScreen() {
   const { status, address, error, signIn } = useAuth();
+  const { disconnect, isPending: isDisconnecting } = useDisconnect();
+  const { openConnectModal } = useConnectModal();
 
   const connected = status !== 'disconnected' && status !== 'loading';
   const authenticating = status === 'authenticating';
@@ -59,12 +62,35 @@ export function SignInScreen() {
                 description="Usa MetaMask u otra wallet compatible."
               >
                 {connected ? (
-                  <div className="flex items-center gap-2">
-                    <span className="status status--success">
-                      <span className="status__dot" aria-hidden />
-                      Conectada
-                    </span>
-                    <WalletAddress address={address} chars={4} />
+                  <div className="flex-col gap-2" style={{ alignItems: 'flex-start' }}>
+                    <div className="flex items-center gap-2">
+                      <span className="status status--success">
+                        <span className="status__dot" aria-hidden />
+                        Conectada
+                      </span>
+                      <WalletAddress address={address} chars={4} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={openConnectModal}
+                        disabled={!openConnectModal}
+                      >
+                        Cambiar wallet
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => disconnect()}
+                        disabled={isDisconnecting}
+                        loading={isDisconnecting}
+                      >
+                        Desconectar
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <ConnectButton showBalance={false} chainStatus="none" label="Conectar wallet" />
