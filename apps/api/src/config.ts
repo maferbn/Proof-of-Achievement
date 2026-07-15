@@ -39,4 +39,11 @@ export const config = {
 
   // Logging
   logLevel: process.env.LOG_LEVEL || 'info',
+
+  // IPFS (Pinata) — optional, IPFS features skip gracefully if not set
+  pinataJwt: process.env.PINATA_JWT || undefined,
+  pinataGateway: process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud',
+
+  // Event Indexer
+  indexerPollingIntervalMs: parseInt(process.env.INDEXER_POLLING_INTERVAL_MS || '30000', 10),
 };

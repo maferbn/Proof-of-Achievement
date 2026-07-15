@@ -18,4 +18,10 @@ export const REPUTATION_BADGE_ABI = [
   'function isRevoked(uint256 tokenId) public view returns (bool)',
   // AccessControl utility
   'function hasRole(bytes32 role, address account) public view returns (bool)',
+  // Events
+  'event BadgeMinted(address indexed to, uint256 indexed tokenId, string tokenURI)',
+  'event BadgeRevoked(uint256 indexed tokenId, address indexed owner)',
+  'event MinterGranted(address indexed minter)',
+  'event MinterRevoked(address indexed minter)',
+  'event Locked(uint256 tokenId)',
 ] as const;
