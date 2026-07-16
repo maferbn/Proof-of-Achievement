@@ -52,7 +52,7 @@ All commands run from the **repo root** using Turbo filters or npm workspaces. T
 | `npx turbo dev --filter=api` | Start dev server on port 3000 (ts-node, no hot reload) |
 | `npx turbo build --filter=api` | `tsc` → `dist/` |
 | `npm start -w apps/api` | Run compiled server (`node dist/server.js`) |
-| `npx turbo test --filter=api` | Jest via ts-jest (7 suites, 66 tests) |
+| `npx turbo test --filter=api` | Jest via ts-jest (7 suites, 63 tests) |
 | `npm run test:watch -w apps/api` | Jest watch mode |
 | `npx turbo lint --filter=api` | `eslint .` (uses root flat config) |
 | `npm run db:migrate -w apps/api` | `prisma migrate dev` (create/apply migrations) |
@@ -73,9 +73,11 @@ All commands run from the **repo root** using Turbo filters or npm workspaces. T
 - Auth uses **SIWE** (Sign-In with Ethereum) + JWT. Routes are protected by `auth.middleware.ts`.
 - Entry point: `src/server.ts` (port 3000, CORS for `CORS_ORIGIN`).
 - Prisma schema has 8 models: `SiweNonce`, `Admin`, `RelayerWallet`, `Group`, `Member`, `BadgeDefinition`, `ValidationRule`, `BadgeAward`.
-- **Validation rules are mandatory:** every `BadgeDefinition` must have a `ValidationRule` that defines the required `evidenceType`, thresholds (`rules` JSON), and optional `externalVerifierUrl`. The simulated oracle validates submitted evidence against the rule stored in the database, not hardcoded values.
+- **Validation rules are mandatory:** every `BadgeDefinition` must have a `ValidationRule` that defines the required `evidenceType` (arbitrary string), and a `rules.fields[]` JSON schema. The simulated oracle validates submitted evidence against the rule stored in the database, not hardcoded values.
+- `ValidationRule.rules` is a dynamic schema. Supported field types: `text`, `number`, `date`, `boolean`, `file`. Supported constraints: `min`/`max` for numbers, `past`/`future` for dates, `pattern` regex for text. SQLite stores `rules` as a String; PostgreSQL stores it as Json. The backend normalizes both before validation.
 - Evidence is **required** for awarding or validating a badge; awarding without evidence returns `400`.
 - New badge-definition routes: `GET /badge-definitions/:id/validation-rule`, `PUT /badge-definitions/:id/validation-rule`, and `DELETE /badge-definitions/:id/validation-rule` (blocked — rules cannot be deleted, only updated).
+- Legacy rules in the old type-specific format (`minPassingScore`, `requirePastDate`, etc.) must be migrated via `npx ts-node apps/api/scripts/migrateValidationRules.ts` before use.
 - Contract interaction uses a **hardcoded minimal ABI** in `relayer.service.ts` (does not import from `@repo/contracts`).
 
 ## Order of operations for a full local run

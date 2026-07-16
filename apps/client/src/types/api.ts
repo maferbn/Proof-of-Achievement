@@ -154,34 +154,51 @@ export interface BadgeMetadataJson {
   attributes?: Array<{ trait_type: string; value: string }>;
 }
 
-/** Evidence types accepted by the backend oracle validator. */
-export type EvidenceType =
-  | 'course_completion'
-  | 'game_win'
-  | 'exam_pass'
-  | 'contribution'
-  | 'generic';
-
+/** Evidence payload validated dynamically by the backend oracle. */
 export interface Evidence {
-  type: EvidenceType;
+  /** Free-form label chosen by the organization (e.g. "Certificado de curso"). */
+  type: string;
   data: Record<string, unknown>;
 }
 
+/** Supported field types for dynamic evidence schemas. */
+export type FieldType = 'text' | 'number' | 'date' | 'boolean' | 'file';
+
+/** Constraints applied to a field value depending on its type. */
+export interface FieldConstraint {
+  /** Number: inclusive minimum. */
+  min?: number;
+  /** Number: inclusive maximum. */
+  max?: number;
+  /** Date: must be in the past. */
+  past?: boolean;
+  /** Date: must be in the future. */
+  future?: boolean;
+  /** Text: regex pattern the value must match. */
+  pattern?: string;
+}
+
+/** A field that makes up a dynamic evidence schema. */
+export interface FieldDefinition {
+  /** Machine name used as key in `Evidence.data`. */
+  name: string;
+  /** Human-readable label shown in forms. */
+  label: string;
+  type: FieldType;
+  required: boolean;
+  constraints?: FieldConstraint;
+}
+
+/** Dynamic validation rule: a list of fields with optional constraints. */
 export interface ValidationRuleConfig {
-  requireData?: boolean;
-  requirePastDate?: boolean;
-  minScore?: number;
-  requireMatchId?: boolean;
-  minPassingScore?: number;
-  maxAttempts?: number;
-  requiredFields?: string[];
-  [key: string]: unknown;
+  fields: FieldDefinition[];
 }
 
 export interface ValidationRule {
   id: string;
   badgeDefinitionId: string;
-  evidenceType: EvidenceType;
+  /** Free-form label (e.g. "Aprobar examen", "Ganar partida"). */
+  evidenceType: string;
   rules: ValidationRuleConfig;
   externalVerifierUrl?: string | null;
   enabled: boolean;
@@ -190,13 +207,13 @@ export interface ValidationRule {
 }
 
 export interface CreateValidationRuleInput {
-  evidenceType: EvidenceType;
+  evidenceType: string;
   rules: ValidationRuleConfig;
   externalVerifierUrl?: string;
 }
 
 export interface UpdateValidationRuleInput {
-  evidenceType?: EvidenceType;
+  evidenceType?: string;
   rules?: ValidationRuleConfig;
   externalVerifierUrl?: string | null;
   enabled?: boolean;

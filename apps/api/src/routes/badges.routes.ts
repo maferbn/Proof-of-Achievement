@@ -33,14 +33,13 @@ router.post('/badge-definitions', authMiddleware, async (req: AuthenticatedReque
 
     const { evidenceType, rules } = validationRule;
 
-    if (!evidenceType || !validationService.isValidEvidenceType(evidenceType)) {
-      return res.status(400).json({
-        error: `Invalid or missing "validationRule.evidenceType". Must be one of: ${validationService.EVIDENCE_TYPES?.join(', ') || 'course_completion, game_win, exam_pass, contribution, generic'}`,
-      });
+    if (!evidenceType || typeof evidenceType !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid "validationRule.evidenceType"' });
     }
 
-    if (!rules || typeof rules !== 'object' || Object.keys(rules).length === 0) {
-      return res.status(400).json({ error: 'Missing or empty "validationRule.rules"' });
+    const ruleConfigError = validationService.validateRuleConfig(rules);
+    if (ruleConfigError) {
+      return res.status(400).json({ error: ruleConfigError });
     }
 
     // Check group ownership
@@ -231,14 +230,15 @@ router.put('/badge-definitions/:id/validation-rule', authMiddleware, async (req:
       return res.status(404).json({ error: 'Validation rule not found' });
     }
 
-    if (evidenceType !== undefined && !validationService.isValidEvidenceType(evidenceType)) {
-      return res.status(400).json({
-        error: `Invalid "evidenceType". Must be one of: ${validationService.EVIDENCE_TYPES.join(', ')}`,
-      });
+    if (evidenceType !== undefined && (typeof evidenceType !== 'string' || evidenceType.length === 0)) {
+      return res.status(400).json({ error: '"evidenceType" must be a non-empty string' });
     }
 
-    if (rules !== undefined && (typeof rules !== 'object' || Object.keys(rules).length === 0)) {
-      return res.status(400).json({ error: '"rules" must be a non-empty object' });
+    if (rules !== undefined) {
+      const ruleConfigError = validationService.validateRuleConfig(rules);
+      if (ruleConfigError) {
+        return res.status(400).json({ error: ruleConfigError });
+      }
     }
 
     const updated = await prisma.validationRule.update({

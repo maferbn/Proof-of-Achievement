@@ -64,42 +64,52 @@ export interface User {
 
 // --- Oracle Validation Types ---
 
-export type EvidenceType =
-  | 'course_completion'
-  | 'game_win'
-  | 'exam_pass'
-  | 'contribution'
-  | 'generic';
-
+/** Evidence is any free-form label plus a data payload validated dynamically. */
 export interface Evidence {
-  type: EvidenceType;
+  /** Free-form label chosen by the organization (e.g. "Certificado de curso"). */
+  type: string;
   data: Record<string, unknown>;
   signature?: string;
 }
 
+/** Supported field types for dynamic evidence rules. */
+export type FieldType = 'text' | 'number' | 'date' | 'boolean' | 'file';
+
+/** Constraints applied to a field value depending on its type. */
+export interface FieldConstraint {
+  /** Number: inclusive minimum. */
+  min?: number;
+  /** Number: inclusive maximum. */
+  max?: number;
+  /** Date: must be in the past. */
+  past?: boolean;
+  /** Date: must be in the future. */
+  future?: boolean;
+  /** Text: regex pattern the value must match. */
+  pattern?: string;
+}
+
+/** A field that makes up an evidence schema. */
+export interface FieldDefinition {
+  /** Machine name used as key in `Evidence.data`. */
+  name: string;
+  /** Human-readable label shown in forms. */
+  label: string;
+  type: FieldType;
+  required: boolean;
+  constraints?: FieldConstraint;
+}
+
+/** Dynamic validation rule: a list of fields with optional constraints. */
 export interface ValidationRuleConfig {
-  /** Generic / fallback rule. */
-  requireData?: boolean;
-  /** Course completion: require completion date to be in the past. */
-  requirePastDate?: boolean;
-  /** Game win: minimum score to pass. */
-  minScore?: number;
-  /** Game win: require a matchId field. */
-  requireMatchId?: boolean;
-  /** Exam pass: minimum passing score. */
-  minPassingScore?: number;
-  /** Exam pass: maximum allowed attempts (future). */
-  maxAttempts?: number;
-  /** Contribution: list of required field names. */
-  requiredFields?: string[];
-  /** External verifier API URL (future). */
-  [key: string]: unknown;
+  fields: FieldDefinition[];
 }
 
 export interface ValidationRule {
   id: string;
   badgeDefinitionId: string;
-  evidenceType: EvidenceType;
+  /** Free-form label (e.g. "Aprobar examen", "Ganar partida"). */
+  evidenceType: string;
   rules: ValidationRuleConfig;
   externalVerifierUrl?: string | null;
   enabled: boolean;
@@ -108,13 +118,13 @@ export interface ValidationRule {
 }
 
 export interface CreateValidationRuleInput {
-  evidenceType: EvidenceType;
+  evidenceType: string;
   rules: ValidationRuleConfig;
   externalVerifierUrl?: string;
 }
 
 export interface UpdateValidationRuleInput {
-  evidenceType?: EvidenceType;
+  evidenceType?: string;
   rules?: ValidationRuleConfig;
   externalVerifierUrl?: string | null;
   enabled?: boolean;

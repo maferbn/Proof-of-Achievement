@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Select, Input } from '../../components/ui';
+import { Plus, X } from 'lucide-react';
+import { Input, Select, Button } from '../../components/ui';
 import type { SelectOption } from '../../components/ui';
 import type {
   CreateValidationRuleInput,
-  EvidenceType,
-  ValidationRuleConfig,
+  FieldDefinition,
+  FieldType,
 } from '../../types/api';
 
-const EVIDENCE_TYPE_OPTIONS: SelectOption[] = [
-  { value: 'course_completion', label: 'Curso completado' },
-  { value: 'exam_pass', label: 'Examen aprobado' },
-  { value: 'game_win', label: 'Victoria en videojuego' },
-  { value: 'contribution', label: 'Contribución' },
-  { value: 'generic', label: 'Evidencia genérica' },
+const FIELD_TYPE_OPTIONS: SelectOption[] = [
+  { value: 'text', label: 'Texto' },
+  { value: 'number', label: 'Número' },
+  { value: 'date', label: 'Fecha' },
+  { value: 'boolean', label: 'Sí / No' },
+  { value: 'file', label: 'Archivo / IPFS' },
 ];
 
 interface ValidationRuleFormProps {
@@ -20,168 +21,256 @@ interface ValidationRuleFormProps {
   disabled?: boolean;
 }
 
-function buildRule(
-  type: EvidenceType,
-  fields: Record<string, string>
-): ValidationRuleConfig | null {
-  switch (type) {
-    case 'course_completion': {
-      if (!fields.courseId) return null;
-      return {
-        requirePastDate: true,
-      };
-    }
-    case 'exam_pass': {
-      const min = Number(fields.minPassingScore);
-      if (Number.isNaN(min) || !fields.examId) return null;
-      return { minPassingScore: min };
-    }
-    case 'game_win': {
-      const min = fields.minScore ? Number(fields.minScore) : undefined;
-      if (Number.isNaN(min)) return null;
-      if (!fields.gameId) return null;
-      return {
-        requireMatchId: true,
-        ...(min !== undefined && { minScore: min }),
-      };
-    }
-    case 'contribution': {
-      if (!fields.contributionType) return null;
-      return {
-        requiredFields: ['contributionType', 'contributionId'],
-      };
-    }
-    case 'generic': {
-      return { requireData: true };
-    }
-    default:
-      return null;
-  }
+function makeField(index: number): FieldDefinition {
+  return {
+    name: `campo${index}`,
+    label: `Campo ${index}`,
+    type: 'text',
+    required: true,
+  };
+}
+
+function isValidIdentifier(name: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name);
 }
 
 export function ValidationRuleForm({ onChange, disabled }: ValidationRuleFormProps) {
-  const [type, setType] = useState<EvidenceType>('exam_pass');
-  const [fields, setFields] = useState<Record<string, string>>({
-    examId: '',
-    minPassingScore: '70',
-  });
+  const [evidenceType, setEvidenceType] = useState('');
+  const [fields, setFields] = useState<FieldDefinition[]>([makeField(1)]);
 
-  const rule = useMemo(() => buildRule(type, fields), [type, fields]);
+  const isValid = useMemo(() => {
+    if (!evidenceType.trim()) return false;
+    if (fields.length === 0) return false;
+
+    const names = new Set<string>();
+    for (const f of fields) {
+      if (!f.name.trim() || !f.label.trim()) return false;
+      if (!isValidIdentifier(f.name)) return false;
+      if (names.has(f.name)) return false;
+      names.add(f.name);
+    }
+
+    return true;
+  }, [evidenceType, fields]);
+
+  const rule = useMemo<CreateValidationRuleInput | null>(() => {
+    if (!isValid) return null;
+    return {
+      evidenceType: evidenceType.trim(),
+      rules: { fields: fields.map((f) => ({ ...f, name: f.name.trim(), label: f.label.trim() })) },
+    };
+  }, [evidenceType, fields, isValid]);
 
   useEffect(() => {
-    if (rule) {
-      onChange({ evidenceType: type, rules: rule });
-    } else {
-      onChange(null);
-    }
-  }, [rule, type, onChange]);
+    onChange(rule);
+  }, [rule, onChange]);
 
-  const changeType = (next: EvidenceType) => {
-    setType(next);
-    switch (next) {
-      case 'course_completion':
-        setFields({ courseId: '' });
-        break;
-      case 'exam_pass':
-        setFields({ examId: '', minPassingScore: '70' });
-        break;
-      case 'game_win':
-        setFields({ gameId: '', minScore: '' });
-        break;
-      case 'contribution':
-        setFields({ contributionType: '' });
-        break;
-      case 'generic':
-        setFields({});
-        break;
-    }
+  const updateField = (index: number, patch: Partial<FieldDefinition>) => {
+    setFields((prev) => prev.map((f, i) => (i === index ? { ...f, ...patch } : f)));
   };
 
-  const setField = (key: string, val: string) =>
-    setFields((prev) => ({ ...prev, [key]: val }));
+  const updateConstraint = (index: number, patch: Record<string, unknown>) => {
+    setFields((prev) =>
+      prev.map((f, i) =>
+        i === index
+          ? {
+              ...f,
+              constraints: { ...(f.constraints || {}), ...patch },
+            }
+          : f
+      )
+    );
+  };
+
+  const addField = () => {
+    setFields((prev) => [...prev, makeField(prev.length + 1)]);
+  };
+
+  const removeField = (index: number) => {
+    setFields((prev) => prev.filter((_, i) => i !== index));
+  };
 
   return (
     <div className="flex-col gap-4">
-      <Select
-        label="Tipo de evidencia requerida"
+      <Input
+        label="Nombre del tipo de evidencia"
         required
-        options={EVIDENCE_TYPE_OPTIONS}
-        value={type}
-        onChange={(e) => changeType(e.target.value as EvidenceType)}
+        placeholder="p. ej. Certificado de curso, Partida ganada, Asistencia a evento"
+        value={evidenceType}
+        onChange={(e) => setEvidenceType(e.target.value)}
         disabled={disabled}
       />
 
-      {type === 'course_completion' && (
-        <Input
-          label="ID del curso (campo requerido en la evidencia)"
-          required
-          value={fields.courseId ?? ''}
-          onChange={(e) => setField('courseId', e.target.value)}
-          placeholder="p. ej. web3-101"
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-strong">Campos de la evidencia</span>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={addField}
           disabled={disabled}
-        />
-      )}
+          leftIcon={<Plus size={14} />}
+        >
+          Agregar campo
+        </Button>
+      </div>
 
-      {type === 'exam_pass' && (
-        <div className="flex-col gap-3">
-          <Input
-            label="ID del examen (campo requerido en la evidencia)"
-            required
-            value={fields.examId ?? ''}
-            onChange={(e) => setField('examId', e.target.value)}
-            placeholder="p. ej. final-exam"
-            disabled={disabled}
-          />
-          <Input
-            label="Nota mínima para aprobar"
-            required
-            type="number"
-            inputMode="numeric"
-            value={fields.minPassingScore ?? ''}
-            onChange={(e) => setField('minPassingScore', e.target.value)}
+      {fields.map((field, index) => (
+        <div
+          key={index}
+          style={{
+            padding: 'var(--sp-3)',
+            borderRadius: 'var(--r-md)',
+            background: 'var(--glass-bg)',
+            border: '1px solid var(--glass-border)',
+          }}
+          className="flex-col gap-3"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-muted" style={{ textTransform: 'uppercase' }}>
+              Campo {index + 1}
+            </span>
+            <button
+              type="button"
+              className="btn btn--ghost btn--icon"
+              onClick={() => removeField(index)}
+              disabled={disabled || fields.length === 1}
+              aria-label="Eliminar campo"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
+            <Input
+              label="Nombre interno"
+              required
+              value={field.name}
+              onChange={(e) => updateField(index, { name: e.target.value })}
+              placeholder="p. ej. courseId"
+              disabled={disabled}
+              hint="Sin espacios ni caracteres especiales"
+            />
+            <Input
+              label="Etiqueta visible"
+              required
+              value={field.label}
+              onChange={(e) => updateField(index, { label: e.target.value })}
+              placeholder="p. ej. ID del curso"
+              disabled={disabled}
+            />
+          </div>
+
+          <div className="grid" style={{ gridTemplateColumns: '1fr auto', gap: 'var(--sp-3)', alignItems: 'end' }}>
+            <Select
+              label="Tipo de dato"
+              required
+              options={FIELD_TYPE_OPTIONS}
+              value={field.type}
+              onChange={(e) => updateField(index, { type: e.target.value as FieldType })}
+              disabled={disabled}
+            />
+            <label className="flex items-center gap-2 text-sm" style={{ paddingBottom: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={field.required}
+                onChange={(e) => updateField(index, { required: e.target.checked })}
+                disabled={disabled}
+              />
+              Requerido
+            </label>
+          </div>
+
+          <FieldConstraints
+            field={field}
+            index={index}
+            onChange={updateConstraint}
             disabled={disabled}
           />
         </div>
-      )}
+      ))}
 
-      {type === 'game_win' && (
-        <div className="flex-col gap-3">
-          <Input
-            label="ID del juego (campo requerido en la evidencia)"
-            required
-            value={fields.gameId ?? ''}
-            onChange={(e) => setField('gameId', e.target.value)}
-            placeholder="p. ej. game-001"
-            disabled={disabled}
-          />
-          <Input
-            label="Puntuación mínima para ganar"
-            type="number"
-            inputMode="numeric"
-            value={fields.minScore ?? ''}
-            onChange={(e) => setField('minScore', e.target.value)}
-            placeholder="Opcional"
-            disabled={disabled}
-          />
-        </div>
-      )}
-
-      {type === 'contribution' && (
-        <Input
-          label="Tipo de contribución (campo requerido en la evidencia)"
-          required
-          value={fields.contributionType ?? ''}
-          onChange={(e) => setField('contributionType', e.target.value)}
-          placeholder="p. ej. pull_request"
-          disabled={disabled}
-        />
-      )}
-
-      {type === 'generic' && (
-        <p className="text-sm text-muted">
-          Se requerirá al menos un par clave/valor arbitrario como evidencia.
+      {!isValid && (
+        <p className="text-xs text-muted">
+          Completa el nombre del tipo de evidencia y todos los campos (nombre interno, etiqueta y tipo).
         </p>
       )}
     </div>
   );
+}
+
+interface FieldConstraintsProps {
+  field: FieldDefinition;
+  index: number;
+  onChange: (index: number, patch: Record<string, unknown>) => void;
+  disabled?: boolean;
+}
+
+function FieldConstraints({ field, index, onChange, disabled }: FieldConstraintsProps) {
+  const c = field.constraints || {};
+
+  switch (field.type) {
+    case 'number':
+      return (
+        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
+          <Input
+            label="Mínimo"
+            type="number"
+            inputMode="numeric"
+            value={c.min ?? ''}
+            onChange={(e) => onChange(index, { min: e.target.value ? Number(e.target.value) : undefined })}
+            placeholder="Opcional"
+            disabled={disabled}
+          />
+          <Input
+            label="Máximo"
+            type="number"
+            inputMode="numeric"
+            value={c.max ?? ''}
+            onChange={(e) => onChange(index, { max: e.target.value ? Number(e.target.value) : undefined })}
+            placeholder="Opcional"
+            disabled={disabled}
+          />
+        </div>
+      );
+
+    case 'date':
+      return (
+        <div className="flex items-center gap-4 text-sm">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!c.past}
+              onChange={(e) => onChange(index, { past: e.target.checked, future: false })}
+              disabled={disabled}
+            />
+            Debe ser pasada
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!c.future}
+              onChange={(e) => onChange(index, { future: e.target.checked, past: false })}
+              disabled={disabled}
+            />
+            Debe ser futura
+          </label>
+        </div>
+      );
+
+    case 'text':
+      return (
+        <Input
+          label="Patrón regex (opcional)"
+          value={c.pattern ?? ''}
+          onChange={(e) => onChange(index, { pattern: e.target.value || undefined })}
+          placeholder="p. ej. ^[A-Z0-9]+$"
+          disabled={disabled}
+          hint="Si lo completas, el valor debe coincidir con la expresión regular"
+        />
+      );
+
+    default:
+      return null;
+  }
 }
