@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+.turbo/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Solidity / Hardhat artifacts (Monorepo & Single project)
+artifacts/
+cache/
+typechain/
+typechain-types/
+packages/**/artifacts/
+packages/**/cache/
+packages/**/typechain-types/
+packages/**/build-info/
+packages/**/*.dbg.json
+packages/**/*.bin
+
+# Testing
+coverage/
+coverage.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE & OS
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Prisma test artifacts
+*.db
+
+# Lock files in subdirectories
+reputacion-dapp/

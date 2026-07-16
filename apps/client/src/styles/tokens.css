@@ -1,0 +1,103 @@
+/* ============================================================
+   Design tokens — Proof of Achievement
+   Dark, blockchain-native palette: deep navy, indigo, violet,
+   cyan accent. Soft gradients, glassmorphism, gentle shadows.
+   ============================================================ */
+
+:root {
+  /* --- Surface / background layers --- */
+  --bg-base: #060814;
+  --bg-deep: #04060f;
+  --bg-surface: #0c1022;
+  --bg-elevated: #121734;
+  --bg-inset: #0a0e1e;
+
+  /* Glass surfaces */
+  --glass-bg: rgba(255, 255, 255, 0.035);
+  --glass-bg-strong: rgba(255, 255, 255, 0.06);
+  --glass-border: rgba(148, 163, 255, 0.12);
+  --glass-border-strong: rgba(148, 163, 255, 0.22);
+
+  /* --- Brand palette --- */
+  --indigo: #6366f1;
+  --indigo-strong: #4f46e5;
+  --violet: #8b5cf6;
+  --cyan: #22d3ee;
+  --cyan-soft: #67e8f9;
+  --blue: #3b82f6;
+
+  --brand-gradient: linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #22d3ee 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(34, 211, 238, 0.12));
+  --hero-glow: radial-gradient(60% 60% at 50% 0%, rgba(99, 102, 241, 0.35) 0%, rgba(34, 211, 238, 0.05) 45%, transparent 72%);
+
+  /* --- Text --- */
+  --text: #c3c9e8;
+  --text-strong: #f4f6ff;
+  --text-muted: #7a82ab;
+  --text-faint: #565d82;
+  --text-on-accent: #ffffff;
+
+  /* --- Semantic / status --- */
+  --success: #34d399;
+  --success-bg: rgba(52, 211, 153, 0.12);
+  --success-border: rgba(52, 211, 153, 0.32);
+
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.12);
+  --warning-border: rgba(251, 191, 36, 0.32);
+
+  --danger: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.12);
+  --danger-border: rgba(248, 113, 113, 0.32);
+
+  --info: #38bdf8;
+  --info-bg: rgba(56, 189, 248, 0.12);
+  --info-border: rgba(56, 189, 248, 0.32);
+
+  --neutral: #94a3b8;
+  --neutral-bg: rgba(148, 163, 184, 0.12);
+  --neutral-border: rgba(148, 163, 184, 0.28);
+
+  /* --- Radius --- */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-full: 999px;
+
+  /* --- Shadows --- */
+  --shadow-sm: 0 1px 2px rgba(2, 4, 12, 0.4);
+  --shadow-md: 0 8px 24px -8px rgba(2, 4, 12, 0.6);
+  --shadow-lg: 0 24px 60px -20px rgba(2, 4, 12, 0.75);
+  --shadow-glow: 0 0 0 1px rgba(99, 102, 241, 0.25), 0 12px 40px -12px rgba(99, 102, 241, 0.45);
+
+  /* --- Typography --- */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+  /* --- Spacing scale --- */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+  --sp-8: 4rem;
+
+  /* --- Layout --- */
+  --container: 1200px;
+  --sidebar-w: 264px;
+  --header-h: 68px;
+
+  /* --- Motion --- */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 180ms;
+
+  --z-header: 40;
+  --z-sidebar: 45;
+  --z-overlay: 60;
+  --z-modal: 70;
+  --z-toast: 90;
+}
