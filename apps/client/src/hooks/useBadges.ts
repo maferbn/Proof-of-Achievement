@@ -8,7 +8,14 @@ import {
   groupsKey,
   memberBadgesKey,
 } from './queryKeys';
-import type { BadgeAward, BadgeDefinition, Evidence, MemberBadgesResponse } from '../types/api';
+import type {
+  BadgeAward,
+  BadgeDefinition,
+  Evidence,
+  MemberBadgesResponse,
+  UpdateValidationRuleInput,
+  ValidationRule,
+} from '../types/api';
 
 /** Poll interval (ms) used while at least one award is still pending. */
 const PENDING_POLL_MS = 5_000;
@@ -72,20 +79,47 @@ export function useUploadMetadata() {
   });
 }
 
-/** POST /badge-definitions/:id/validate — oracle eligibility check (no state change). */
-export function useValidateEvidence() {
-  return useMutation({
-    mutationFn: ({
-      badgeDefinitionId,
-      memberId,
-      evidence,
-    }: {
-      badgeDefinitionId: string;
-      memberId: string;
-      evidence?: Evidence;
-    }) => badgesApi.validate(badgeDefinitionId, { memberId, evidence }),
-  });
-}
+  /** GET /badge-definitions/:id/validation-rule — protected. */
+  export function useValidationRule(badgeDefinitionId: string | undefined) {
+    return useQuery<ValidationRule>({
+      queryKey: ['validationRule', badgeDefinitionId ?? ''],
+      queryFn: () => badgesApi.getValidationRule(badgeDefinitionId as string),
+      enabled: !!badgeDefinitionId,
+    });
+  }
+
+  /** PUT /badge-definitions/:id/validation-rule — protected. */
+  export function useUpdateValidationRule() {
+    const qc = useQueryClient();
+    return useMutation({
+      mutationFn: ({
+        badgeDefinitionId,
+        input,
+      }: {
+        badgeDefinitionId: string;
+        input: UpdateValidationRuleInput;
+      }) => badgesApi.updateValidationRule(badgeDefinitionId, input),
+      onSuccess: (_, { badgeDefinitionId }) => {
+        qc.invalidateQueries({ queryKey: ['validationRule', badgeDefinitionId] });
+        qc.invalidateQueries({ queryKey: badgeDefinitionKey(badgeDefinitionId) });
+      },
+    });
+  }
+
+  /** POST /badge-definitions/:id/validate — oracle eligibility check (no state change). */
+  export function useValidateEvidence() {
+    return useMutation({
+      mutationFn: ({
+        badgeDefinitionId,
+        memberId,
+        evidence,
+      }: {
+        badgeDefinitionId: string;
+        memberId: string;
+        evidence: Evidence;
+      }) => badgesApi.validate(badgeDefinitionId, { memberId, evidence }),
+    });
+  }
 
 /** Invalidate everything touched when a badge is awarded/verified/revoked. */
 function invalidateAwardScopes(
@@ -115,7 +149,7 @@ export function useAwardBadge(groupId?: string) {
     }: {
       badgeDefinitionId: string;
       memberId: string;
-      evidence?: Evidence;
+      evidence: Evidence;
     }) => badgesApi.award(badgeDefinitionId, { memberId, evidence } as AwardInput),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: badgeDefinitionKey(res.badgeAward.badgeDefinitionId) });

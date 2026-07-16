@@ -10,10 +10,33 @@ function uniqueAddress(): string {
   return `0x${counter.toString().padStart(40, '0')}`;
 }
 
+/** Helper to create a badge definition with its mandatory validation rule. */
+async function createBadgeDefinition(
+  adminId: string,
+  groupId: string,
+  name: string,
+  rule?: { evidenceType: string; rules: Record<string, any> }
+) {
+  const badgeDef = await prisma.badgeDefinition.create({
+    data: { adminId, groupId, name },
+  });
+
+  await prisma.validationRule.create({
+    data: {
+      badgeDefinitionId: badgeDef.id,
+      evidenceType: rule?.evidenceType ?? 'generic',
+      rules: JSON.stringify(rule?.rules ?? { requireData: true }),
+    },
+  });
+
+  return badgeDef;
+}
+
 describe('ValidationService', () => {
   beforeEach(async () => {
     // Clean tables in dependency order (respecting foreign keys)
     await prisma.badgeAward.deleteMany();
+    await prisma.validationRule.deleteMany();
     await prisma.badgeDefinition.deleteMany();
     await prisma.member.deleteMany();
     await prisma.relayerWallet.deleteMany();
@@ -26,7 +49,7 @@ describe('ValidationService', () => {
   });
 
   describe('validateAchievement', () => {
-    it('should validate when member belongs to group and badge is available', async () => {
+    it('should validate when member belongs to group and evidence matches rule', async () => {
       const admin = await prisma.admin.create({
         data: { walletAddress: uniqueAddress() },
       });
@@ -39,14 +62,15 @@ describe('ValidationService', () => {
         data: { groupId: group.id, walletAddress: uniqueAddress() },
       });
 
-      const badgeDef = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: group.id, name: 'Test Badge' },
+      const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Test Badge', {
+        evidenceType: 'generic',
+        rules: { requireData: true },
       });
 
-      const result = await validationService.validateAchievement(
-        member.id,
-        badgeDef.id
-      );
+      const result = await validationService.validateAchievement(member.id, badgeDef.id, {
+        type: 'generic',
+        data: { proof: 'some data' },
+      });
 
       expect(result.valid).toBe(true);
       expect(result.validatedAt).toBeInstanceOf(Date);
@@ -61,13 +85,12 @@ describe('ValidationService', () => {
         data: { adminId: admin.id, name: 'Test Group' },
       });
 
-      const badgeDef = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: group.id, name: 'Test Badge' },
-      });
+      const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Test Badge');
 
       const result = await validationService.validateAchievement(
         'non-existent-member-id',
-        badgeDef.id
+        badgeDef.id,
+        { type: 'generic', data: { proof: 'x' } }
       );
 
       expect(result.valid).toBe(false);
@@ -89,7 +112,8 @@ describe('ValidationService', () => {
 
       const result = await validationService.validateAchievement(
         member.id,
-        'non-existent-badge-id'
+        'non-existent-badge-id',
+        { type: 'generic', data: { proof: 'x' } }
       );
 
       expect(result.valid).toBe(false);
@@ -113,13 +137,12 @@ describe('ValidationService', () => {
         data: { groupId: groupA.id, walletAddress: uniqueAddress() },
       });
 
-      const badgeDef = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: groupB.id, name: 'Badge in Group B' },
-      });
+      const badgeDef = await createBadgeDefinition(admin.id, groupB.id, 'Badge in Group B');
 
       const result = await validationService.validateAchievement(
         member.id,
-        badgeDef.id
+        badgeDef.id,
+        { type: 'generic', data: { proof: 'x' } }
       );
 
       expect(result.valid).toBe(false);
@@ -139,9 +162,7 @@ describe('ValidationService', () => {
         data: { groupId: group.id, walletAddress: uniqueAddress() },
       });
 
-      const badgeDef = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: group.id, name: 'Test Badge' },
-      });
+      const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Test Badge');
 
       await prisma.badgeAward.create({
         data: {
@@ -153,18 +174,67 @@ describe('ValidationService', () => {
 
       const result = await validationService.validateAchievement(
         member.id,
-        badgeDef.id
+        badgeDef.id,
+        { type: 'generic', data: { proof: 'x' } }
       );
 
       expect(result.valid).toBe(false);
       expect(result.reason).toBe('Member already has this badge');
     });
 
-    describe('evidence validation', () => {
+    it('should reject when evidence is missing', async () => {
+      const admin = await prisma.admin.create({
+        data: { walletAddress: uniqueAddress() },
+      });
+
+      const group = await prisma.group.create({
+        data: { adminId: admin.id, name: 'Test Group' },
+      });
+
+      const member = await prisma.member.create({
+        data: { groupId: group.id, walletAddress: uniqueAddress() },
+      });
+
+      const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Test Badge');
+
+      const result = await validationService.validateAchievement(member.id, badgeDef.id);
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('Evidence is required for this badge');
+    });
+
+    it('should reject when badge has no validation rule', async () => {
+      const admin = await prisma.admin.create({
+        data: { walletAddress: uniqueAddress() },
+      });
+
+      const group = await prisma.group.create({
+        data: { adminId: admin.id, name: 'Test Group' },
+      });
+
+      const member = await prisma.member.create({
+        data: { groupId: group.id, walletAddress: uniqueAddress() },
+      });
+
+      // Create badge without validation rule to simulate legacy/inconsistent state
+      const badgeDef = await prisma.badgeDefinition.create({
+        data: { adminId: admin.id, groupId: group.id, name: 'Legacy Badge' },
+      });
+
+      const result = await validationService.validateAchievement(
+        member.id,
+        badgeDef.id,
+        { type: 'generic', data: { proof: 'x' } }
+      );
+
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('Validation rule not configured for this badge');
+    });
+
+    describe('evidence validation from database rules', () => {
       let admin: any;
       let group: any;
       let member: any;
-      let badgeDef: any;
 
       beforeEach(async () => {
         admin = await prisma.admin.create({
@@ -178,13 +248,14 @@ describe('ValidationService', () => {
         member = await prisma.member.create({
           data: { groupId: group.id, walletAddress: uniqueAddress() },
         });
-
-        badgeDef = await prisma.badgeDefinition.create({
-          data: { adminId: admin.id, groupId: group.id, name: 'Test Badge' },
-        });
       });
 
-      it('should validate course completion evidence', async () => {
+      it('should validate course completion evidence against stored rule', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Course Badge', {
+          evidenceType: 'course_completion',
+          rules: { requirePastDate: true },
+        });
+
         const evidence: Evidence = {
           type: 'course_completion',
           data: {
@@ -204,11 +275,15 @@ describe('ValidationService', () => {
       });
 
       it('should reject course completion with missing fields', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Course Badge', {
+          evidenceType: 'course_completion',
+          rules: { requirePastDate: true },
+        });
+
         const evidence: Evidence = {
           type: 'course_completion',
           data: {
             completionDate: '2024-01-15T00:00:00Z',
-            // missing courseId
           },
         };
 
@@ -223,6 +298,11 @@ describe('ValidationService', () => {
       });
 
       it('should reject course completion with future date', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Course Badge', {
+          evidenceType: 'course_completion',
+          rules: { requirePastDate: true },
+        });
+
         const evidence: Evidence = {
           type: 'course_completion',
           data: {
@@ -241,14 +321,18 @@ describe('ValidationService', () => {
         expect(result.reason).toBe('Invalid or insufficient evidence');
       });
 
-      it('should validate game win evidence', async () => {
+      it('should validate game win evidence against stored minScore', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Game Badge', {
+          evidenceType: 'game_win',
+          rules: { minScore: 50, requireMatchId: true },
+        });
+
         const evidence: Evidence = {
           type: 'game_win',
           data: {
             gameId: 'game-001',
             matchId: 'match-123',
             score: 100,
-            minScore: 50,
           },
         };
 
@@ -262,13 +346,17 @@ describe('ValidationService', () => {
       });
 
       it('should reject game win with insufficient score', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Game Badge', {
+          evidenceType: 'game_win',
+          rules: { minScore: 50, requireMatchId: true },
+        });
+
         const evidence: Evidence = {
           type: 'game_win',
           data: {
             gameId: 'game-001',
             matchId: 'match-123',
             score: 30,
-            minScore: 50,
           },
         };
 
@@ -282,13 +370,17 @@ describe('ValidationService', () => {
         expect(result.reason).toBe('Invalid or insufficient evidence');
       });
 
-      it('should validate exam pass evidence', async () => {
+      it('should validate exam pass evidence against stored minPassingScore', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Exam Badge', {
+          evidenceType: 'exam_pass',
+          rules: { minPassingScore: 70 },
+        });
+
         const evidence: Evidence = {
           type: 'exam_pass',
           data: {
             examId: 'final-exam',
             score: 85,
-            minPassingScore: 70,
           },
         };
 
@@ -301,13 +393,17 @@ describe('ValidationService', () => {
         expect(result.valid).toBe(true);
       });
 
-      it('should reject exam pass with failing score', async () => {
+      it('should reject exam pass with failing score against stored rule', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Exam Badge', {
+          evidenceType: 'exam_pass',
+          rules: { minPassingScore: 70 },
+        });
+
         const evidence: Evidence = {
           type: 'exam_pass',
           data: {
             examId: 'final-exam',
             score: 65,
-            minPassingScore: 70,
           },
         };
 
@@ -321,12 +417,63 @@ describe('ValidationService', () => {
         expect(result.reason).toBe('Invalid or insufficient evidence');
       });
 
+      it('should use dynamic threshold from the rule (not hardcoded 70)', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Strict Exam', {
+          evidenceType: 'exam_pass',
+          rules: { minPassingScore: 90 },
+        });
+
+        const evidence: Evidence = {
+          type: 'exam_pass',
+          data: {
+            examId: 'strict-exam',
+            score: 85,
+          },
+        };
+
+        const result = await validationService.validateAchievement(
+          member.id,
+          badgeDef.id,
+          evidence
+        );
+
+        expect(result.valid).toBe(false);
+        expect(result.reason).toBe('Invalid or insufficient evidence');
+      });
+
+      it('should validate exam pass with score above dynamic threshold', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Strict Exam', {
+          evidenceType: 'exam_pass',
+          rules: { minPassingScore: 90 },
+        });
+
+        const evidence: Evidence = {
+          type: 'exam_pass',
+          data: {
+            examId: 'strict-exam',
+            score: 95,
+          },
+        };
+
+        const result = await validationService.validateAchievement(
+          member.id,
+          badgeDef.id,
+          evidence
+        );
+
+        expect(result.valid).toBe(true);
+      });
+
       it('should reject exam pass with missing score', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Exam Badge', {
+          evidenceType: 'exam_pass',
+          rules: { minPassingScore: 70 },
+        });
+
         const evidence: Evidence = {
           type: 'exam_pass',
           data: {
             examId: 'final-exam',
-            // missing score
           },
         };
 
@@ -340,7 +487,12 @@ describe('ValidationService', () => {
         expect(result.reason).toBe('Invalid or insufficient evidence');
       });
 
-      it('should validate contribution evidence', async () => {
+      it('should validate contribution evidence against stored rule', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Contribution Badge', {
+          evidenceType: 'contribution',
+          rules: { requiredFields: ['contributionType', 'contributionId'] },
+        });
+
         const evidence: Evidence = {
           type: 'contribution',
           data: {
@@ -359,11 +511,15 @@ describe('ValidationService', () => {
       });
 
       it('should reject contribution evidence with missing fields', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Contribution Badge', {
+          evidenceType: 'contribution',
+          rules: { requiredFields: ['contributionType', 'contributionId'] },
+        });
+
         const evidence: Evidence = {
           type: 'contribution',
           data: {
             contributionType: 'pull_request',
-            // missing contributionId
           },
         };
 
@@ -377,12 +533,15 @@ describe('ValidationService', () => {
         expect(result.reason).toBe('Invalid or insufficient evidence');
       });
 
-      it('should accept unknown evidence type if data is non-empty', async () => {
+      it('should reject evidence type mismatch', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Exam Badge', {
+          evidenceType: 'exam_pass',
+          rules: { minPassingScore: 70 },
+        });
+
         const evidence: Evidence = {
-          type: 'custom_evidence',
-          data: {
-            proof: 'some proof data',
-          },
+          type: 'game_win',
+          data: { gameId: 'game-001', matchId: 'match-123', score: 100 },
         };
 
         const result = await validationService.validateAchievement(
@@ -391,12 +550,18 @@ describe('ValidationService', () => {
           evidence
         );
 
-        expect(result.valid).toBe(true);
+        expect(result.valid).toBe(false);
+        expect(result.reason).toContain('Evidence type mismatch');
       });
 
-      it('should reject unknown evidence type if data is empty', async () => {
+      it('should reject generic evidence with empty data', async () => {
+        const badgeDef = await createBadgeDefinition(admin.id, group.id, 'Generic Badge', {
+          evidenceType: 'generic',
+          rules: { requireData: true },
+        });
+
         const evidence: Evidence = {
-          type: 'custom_evidence',
+          type: 'generic',
           data: {},
         };
 
@@ -426,17 +591,22 @@ describe('ValidationService', () => {
         data: { groupId: group.id, walletAddress: uniqueAddress() },
       });
 
-      const badge1 = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: group.id, name: 'Badge 1' },
+      const badge1 = await createBadgeDefinition(admin.id, group.id, 'Badge 1', {
+        evidenceType: 'generic',
+        rules: { requireData: true },
       });
-
-      const badge2 = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: group.id, name: 'Badge 2' },
+      const badge2 = await createBadgeDefinition(admin.id, group.id, 'Badge 2', {
+        evidenceType: 'generic',
+        rules: { requireData: true },
       });
 
       const results = await validationService.validateMultipleAchievements(
         member.id,
-        [badge1.id, badge2.id]
+        [badge1.id, badge2.id],
+        {
+          [badge1.id]: { type: 'generic', data: { proof: 'x' } },
+          [badge2.id]: { type: 'generic', data: { proof: 'y' } },
+        }
       );
 
       expect(Object.keys(results)).toHaveLength(2);
@@ -461,17 +631,23 @@ describe('ValidationService', () => {
         data: { groupId: group.id, walletAddress: uniqueAddress() },
       });
 
-      const validBadge = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: group.id, name: 'Valid Badge' },
+      const validBadge = await createBadgeDefinition(admin.id, group.id, 'Valid Badge', {
+        evidenceType: 'generic',
+        rules: { requireData: true },
       });
 
-      const invalidBadge = await prisma.badgeDefinition.create({
-        data: { adminId: admin.id, groupId: otherGroup.id, name: 'Invalid Badge' },
+      const invalidBadge = await createBadgeDefinition(admin.id, otherGroup.id, 'Invalid Badge', {
+        evidenceType: 'generic',
+        rules: { requireData: true },
       });
 
       const results = await validationService.validateMultipleAchievements(
         member.id,
-        [validBadge.id, invalidBadge.id]
+        [validBadge.id, invalidBadge.id],
+        {
+          [validBadge.id]: { type: 'generic', data: { proof: 'x' } },
+          [invalidBadge.id]: { type: 'generic', data: { proof: 'y' } },
+        }
       );
 
       expect(results[validBadge.id].valid).toBe(true);

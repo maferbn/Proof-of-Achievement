@@ -87,22 +87,38 @@ model Member {
 }
 
 model BadgeDefinition {
-  id          String   @id @default(cuid())
-  adminId     String
-  groupId     String
-  name        String
-  description String?
-  imageURI    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String          @id @default(cuid())
+  adminId        String
+  groupId        String
+  name           String
+  description    String?
+  imageURI       String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
-  admin       Admin         @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  group       Group         @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  badgeAwards BadgeAward[]
+  admin          Admin           @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  group          Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  badgeAwards    BadgeAward[]
+  validationRule ValidationRule?
 
   @@index([adminId])
   @@index([groupId])
   @@unique([groupId, name])
+}
+
+model ValidationRule {
+  id                  String   @id @default(cuid())
+  badgeDefinitionId   String   @unique // 1:1 with BadgeDefinition
+  evidenceType        String
+  rules               String   // JSON-serialized type-specific thresholds / required fields
+  externalVerifierUrl String?
+  enabled             Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  badgeDefinition BadgeDefinition @relation(fields: [badgeDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([badgeDefinitionId])
 }
 
 model BadgeAward {

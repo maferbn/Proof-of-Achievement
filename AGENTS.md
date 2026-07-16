@@ -72,7 +72,10 @@ All commands run from the **repo root** using Turbo filters or npm workspaces. T
 - **Relayer wallet pattern:** Each admin gets a generated relayer wallet whose private key is AES-256-GCM encrypted with a master key. The deployer wallet grants `MINTER_ROLE` to relayer wallets on-chain.
 - Auth uses **SIWE** (Sign-In with Ethereum) + JWT. Routes are protected by `auth.middleware.ts`.
 - Entry point: `src/server.ts` (port 3000, CORS for `CORS_ORIGIN`).
-- Prisma schema has 7 models: `SiweNonce`, `Admin`, `RelayerWallet`, `Group`, `Member`, `BadgeDefinition`, `BadgeAward`.
+- Prisma schema has 8 models: `SiweNonce`, `Admin`, `RelayerWallet`, `Group`, `Member`, `BadgeDefinition`, `ValidationRule`, `BadgeAward`.
+- **Validation rules are mandatory:** every `BadgeDefinition` must have a `ValidationRule` that defines the required `evidenceType`, thresholds (`rules` JSON), and optional `externalVerifierUrl`. The simulated oracle validates submitted evidence against the rule stored in the database, not hardcoded values.
+- Evidence is **required** for awarding or validating a badge; awarding without evidence returns `400`.
+- New badge-definition routes: `GET /badge-definitions/:id/validation-rule`, `PUT /badge-definitions/:id/validation-rule`, and `DELETE /badge-definitions/:id/validation-rule` (blocked — rules cannot be deleted, only updated).
 - Contract interaction uses a **hardcoded minimal ABI** in `relayer.service.ts` (does not import from `@repo/contracts`).
 
 ## Order of operations for a full local run

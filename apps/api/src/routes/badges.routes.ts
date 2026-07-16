@@ -15,15 +15,32 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 
 /**
  * POST /badge-definitions
- * Create a badge template for an admin's group
+ * Create a badge template for an admin's group.
+ * A validation rule is mandatory: every badge must define how it is validated.
  */
 router.post('/badge-definitions', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const adminId = req.adminId!;
-    const { groupId, name, description, imageURI } = req.body;
+    const { groupId, name, description, imageURI, validationRule } = req.body;
 
     if (!groupId || !name) {
       return res.status(400).json({ error: 'Missing "groupId" or "name"' });
+    }
+
+    if (!validationRule || typeof validationRule !== 'object') {
+      return res.status(400).json({ error: 'Missing "validationRule"' });
+    }
+
+    const { evidenceType, rules } = validationRule;
+
+    if (!evidenceType || !validationService.isValidEvidenceType(evidenceType)) {
+      return res.status(400).json({
+        error: `Invalid or missing "validationRule.evidenceType". Must be one of: ${validationService.EVIDENCE_TYPES?.join(', ') || 'course_completion, game_win, exam_pass, contribution, generic'}`,
+      });
+    }
+
+    if (!rules || typeof rules !== 'object' || Object.keys(rules).length === 0) {
+      return res.status(400).json({ error: 'Missing or empty "validationRule.rules"' });
     }
 
     // Check group ownership
@@ -32,14 +49,30 @@ router.post('/badge-definitions', authMiddleware, async (req: AuthenticatedReque
       return res.status(403).json({ error: 'Not authorized to create badges for this group' });
     }
 
-    const badgeDef = await prisma.badgeDefinition.create({
-      data: {
-        adminId,
-        groupId,
-        name,
-        description: description || null,
-        imageURI: imageURI || null,
-      },
+    const badgeDef = await prisma.$transaction(async (tx) => {
+      const created = await tx.badgeDefinition.create({
+        data: {
+          adminId,
+          groupId,
+          name,
+          description: description || null,
+          imageURI: imageURI || null,
+        },
+      });
+
+      await tx.validationRule.create({
+        data: {
+          badgeDefinitionId: created.id,
+          evidenceType,
+          rules,
+          externalVerifierUrl: validationRule.externalVerifierUrl || null,
+        },
+      });
+
+      return tx.badgeDefinition.findUnique({
+        where: { id: created.id },
+        include: { validationRule: true },
+      });
     });
 
     res.status(201).json(badgeDef);
@@ -124,6 +157,7 @@ router.get('/badge-definitions/:id', async (req: AuthenticatedRequest, res: Resp
     const badgeDef = await prisma.badgeDefinition.findUnique({
       where: { id },
       include: {
+        validationRule: true,
         _count: { select: { badgeAwards: true } },
       },
     });
@@ -139,13 +173,109 @@ router.get('/badge-definitions/:id', async (req: AuthenticatedRequest, res: Resp
 });
 
 /**
+ * GET /badge-definitions/:id/validation-rule
+ * Get the validation rule for a badge definition.
+ */
+router.get('/badge-definitions/:id/validation-rule', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.adminId!;
+    const { id: badgeDefId } = req.params;
+
+    const badgeDef = await prisma.badgeDefinition.findUnique({
+      where: { id: badgeDefId },
+      include: { validationRule: true },
+    });
+
+    if (!badgeDef) {
+      return res.status(404).json({ error: 'Badge definition not found' });
+    }
+
+    if (!checkOwnership(badgeDef.adminId, adminId)) {
+      return res.status(403).json({ error: 'Not authorized to view this badge' });
+    }
+
+    if (!badgeDef.validationRule) {
+      return res.status(404).json({ error: 'Validation rule not found' });
+    }
+
+    res.json(badgeDef.validationRule);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /badge-definitions/:id/validation-rule
+ * Update the validation rule for a badge definition.
+ */
+router.put('/badge-definitions/:id/validation-rule', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const adminId = req.adminId!;
+    const { id: badgeDefId } = req.params;
+    const { evidenceType, rules, externalVerifierUrl, enabled } = req.body;
+
+    const badgeDef = await prisma.badgeDefinition.findUnique({
+      where: { id: badgeDefId },
+      include: { validationRule: true },
+    });
+
+    if (!badgeDef) {
+      return res.status(404).json({ error: 'Badge definition not found' });
+    }
+
+    if (!checkOwnership(badgeDef.adminId, adminId)) {
+      return res.status(403).json({ error: 'Not authorized to update this badge' });
+    }
+
+    if (!badgeDef.validationRule) {
+      return res.status(404).json({ error: 'Validation rule not found' });
+    }
+
+    if (evidenceType !== undefined && !validationService.isValidEvidenceType(evidenceType)) {
+      return res.status(400).json({
+        error: `Invalid "evidenceType". Must be one of: ${validationService.EVIDENCE_TYPES.join(', ')}`,
+      });
+    }
+
+    if (rules !== undefined && (typeof rules !== 'object' || Object.keys(rules).length === 0)) {
+      return res.status(400).json({ error: '"rules" must be a non-empty object' });
+    }
+
+    const updated = await prisma.validationRule.update({
+      where: { badgeDefinitionId: badgeDefId },
+      data: {
+        ...(evidenceType !== undefined && { evidenceType }),
+        ...(rules !== undefined && { rules }),
+        ...(externalVerifierUrl !== undefined && { externalVerifierUrl: externalVerifierUrl || null }),
+        ...(enabled !== undefined && { enabled }),
+      },
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /badge-definitions/:id/validation-rule
+ * Removing a validation rule is not allowed: every badge definition must keep
+ * its rule. Organizations can update the rule via PUT instead.
+ */
+router.delete('/badge-definitions/:id/validation-rule', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  res.status(400).json({
+    error: 'Validation rules cannot be deleted. Use PUT to update the rule instead.',
+  });
+});
+
+/**
  * POST /badge-definitions/:id/award
  * CRITICAL ENDPOINT: Award a badge to a member
  *
  * Validation flow:
  * 1. Admin owns this badge definition's group
  * 2. Member belongs to that group
- * 3. Evidence passes oracle validation (if provided)
+ * 3. Evidence passes oracle validation (mandatory)
  * 4. Relayer wallet is active (MINTER_ROLE granted)
  * 5. Member hasn't already received this exact badge
  * 6. If all pass: mint on-chain, then save BadgeAward to DB
@@ -160,10 +290,14 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       return res.status(400).json({ error: 'Missing "memberId"' });
     }
 
+    if (!evidence || typeof evidence !== 'object' || !evidence.type) {
+      return res.status(400).json({ error: 'Missing "evidence"' });
+    }
+
     // 1. Get badge definition and check admin ownership
     const badgeDef = await prisma.badgeDefinition.findUnique({
       where: { id: badgeDefId },
-      include: { group: true },
+      include: { group: true, validationRule: true },
     });
 
     if (!badgeDef) {
@@ -183,20 +317,18 @@ router.post('/badge-definitions/:id/award', authMiddleware, async (req: Authenti
       return res.status(403).json({ error: 'Member does not belong to the required group' });
     }
 
-    // 3. Oracle validation: validate evidence if provided
-    if (evidence) {
-      const validationResult = await validationService.validateAchievement(
-        memberId,
-        badgeDefId,
-        evidence
-      );
+    // 3. Oracle validation: every badge definition must have a rule, and evidence is mandatory
+    const validationResult = await validationService.validateAchievement(
+      memberId,
+      badgeDefId,
+      evidence
+    );
 
-      if (!validationResult.valid) {
-        return res.status(400).json({
-          error: 'Evidence validation failed',
-          reason: validationResult.reason,
-        });
-      }
+    if (!validationResult.valid) {
+      return res.status(400).json({
+        error: 'Evidence validation failed',
+        reason: validationResult.reason,
+      });
     }
 
     // 4. Check relayer wallet is active
@@ -294,10 +426,14 @@ router.post('/badge-definitions/:id/validate', authMiddleware, async (req: Authe
       return res.status(400).json({ error: 'Missing "memberId"' });
     }
 
+    if (!evidence || typeof evidence !== 'object' || !evidence.type) {
+      return res.status(400).json({ error: 'Missing "evidence"' });
+    }
+
     // 1. Get badge definition and check admin ownership
     const badgeDef = await prisma.badgeDefinition.findUnique({
       where: { id: badgeDefId },
-      include: { group: true },
+      include: { group: true, validationRule: true },
     });
 
     if (!badgeDef) {
@@ -342,6 +478,7 @@ router.get('/groups/:groupId/badges', async (req: AuthenticatedRequest, res: Res
     const badges = await prisma.badgeDefinition.findMany({
       where: { groupId },
       include: {
+        validationRule: true,
         badgeAwards: {
           include: { member: true },
         },

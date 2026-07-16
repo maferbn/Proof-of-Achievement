@@ -62,6 +62,64 @@ export interface User {
   updatedAt: Date;
 }
 
+// --- Oracle Validation Types ---
+
+export type EvidenceType =
+  | 'course_completion'
+  | 'game_win'
+  | 'exam_pass'
+  | 'contribution'
+  | 'generic';
+
+export interface Evidence {
+  type: EvidenceType;
+  data: Record<string, unknown>;
+  signature?: string;
+}
+
+export interface ValidationRuleConfig {
+  /** Generic / fallback rule. */
+  requireData?: boolean;
+  /** Course completion: require completion date to be in the past. */
+  requirePastDate?: boolean;
+  /** Game win: minimum score to pass. */
+  minScore?: number;
+  /** Game win: require a matchId field. */
+  requireMatchId?: boolean;
+  /** Exam pass: minimum passing score. */
+  minPassingScore?: number;
+  /** Exam pass: maximum allowed attempts (future). */
+  maxAttempts?: number;
+  /** Contribution: list of required field names. */
+  requiredFields?: string[];
+  /** External verifier API URL (future). */
+  [key: string]: unknown;
+}
+
+export interface ValidationRule {
+  id: string;
+  badgeDefinitionId: string;
+  evidenceType: EvidenceType;
+  rules: ValidationRuleConfig;
+  externalVerifierUrl?: string | null;
+  enabled: boolean;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+export interface CreateValidationRuleInput {
+  evidenceType: EvidenceType;
+  rules: ValidationRuleConfig;
+  externalVerifierUrl?: string;
+}
+
+export interface UpdateValidationRuleInput {
+  evidenceType?: EvidenceType;
+  rules?: ValidationRuleConfig;
+  externalVerifierUrl?: string | null;
+  enabled?: boolean;
+}
+
 // --- API Response Types ---
 
 export interface ApiResponse<T> {

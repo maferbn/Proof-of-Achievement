@@ -3,8 +3,6 @@ import {
   Send,
   RotateCcw,
   Search,
-  ChevronRight,
-  ChevronDown,
   ShieldCheck,
   CheckCircle2,
   XCircle,
@@ -36,7 +34,6 @@ interface AwardBadgeModalProps {
 export function AwardBadgeModal({
   open,
   onClose,
-  groupId,
   badges,
   members,
   preselectedBadgeId,
@@ -45,12 +42,11 @@ export function AwardBadgeModal({
   const [memberId, setMemberId] = useState('');
   const [result, setResult] = useState<BadgeAward | null>(null);
 
-  const [showEvidence, setShowEvidence] = useState(false);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [validation, setValidation] = useState<ValidationResponse | null>(null);
 
-  const award = useAwardBadge(groupId);
-  const verify = useVerifyReceipt(groupId);
+  const award = useAwardBadge();
+  const verify = useVerifyReceipt();
   const validate = useValidateEvidence();
   const toast = useToast();
 
@@ -59,7 +55,6 @@ export function AwardBadgeModal({
       setBadgeId(preselectedBadgeId ?? '');
       setMemberId('');
       setResult(null);
-      setShowEvidence(false);
       setEvidence(null);
       setValidation(null);
     }
@@ -67,7 +62,7 @@ export function AwardBadgeModal({
 
   const badgeOptions: SelectOption[] = useMemo(
     () => badges.map((b) => ({ value: b.id, label: b.name })),
-    [badges],
+    [badges]
   );
   const memberOptions: SelectOption[] = useMemo(
     () =>
@@ -75,28 +70,20 @@ export function AwardBadgeModal({
         value: m.id,
         label: m.displayName ? `${m.displayName} · ${truncateAddress(m.walletAddress)}` : m.walletAddress,
       })),
-    [members],
+    [members]
   );
 
   const selectedBadge = badges.find((b) => b.id === badgeId);
   const selectedMember = members.find((m) => m.id === memberId);
-  const evidenceIncomplete = showEvidence && evidence === null;
-  const canSubmit = !!badgeId && !!memberId && !award.isPending && !evidenceIncomplete;
-  const canValidate = !!badgeId && !!memberId && evidence !== null && !validate.isPending;
+
+  // A badge definition must have a validation rule; if the list is stale, block submission.
+  const missingRule = !!selectedBadge && !selectedBadge.validationRule;
+  const canSubmit = !!badgeId && !!memberId && !award.isPending && evidence !== null && !missingRule;
+  const canValidate = !!badgeId && !!memberId && evidence !== null && !validate.isPending && !missingRule;
 
   const handleEvidenceChange = (next: Evidence | null) => {
     setEvidence(next);
     setValidation(null); // stale once evidence changes
-  };
-
-  const toggleEvidence = () => {
-    setShowEvidence((v) => {
-      if (v) {
-        setEvidence(null);
-        setValidation(null);
-      }
-      return !v;
-    });
   };
 
   const runValidate = async () => {
@@ -110,12 +97,12 @@ export function AwardBadgeModal({
   };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || !evidence) return;
     try {
       const res = await award.mutateAsync({
         badgeDefinitionId: badgeId,
         memberId,
-        evidence: showEvidence ? evidence ?? undefined : undefined,
+        evidence,
       });
       setResult(res.badgeAward);
       toast.success('Emisión enviada', 'Pendiente de confirmación automática.');
@@ -126,7 +113,7 @@ export function AwardBadgeModal({
           409: 'Este miembro ya recibió este logro.',
           400: 'La emisión no es posible. Revisa la evidencia o la capacidad de emisión.',
           403: 'No tienes permiso para emitir este logro.',
-        }),
+        })
       );
     }
   };
@@ -147,7 +134,6 @@ export function AwardBadgeModal({
   const reset = () => {
     setResult(null);
     setMemberId('');
-    setShowEvidence(false);
     setEvidence(null);
     setValidation(null);
     if (!preselectedBadgeId) setBadgeId('');
@@ -248,70 +234,68 @@ export function AwardBadgeModal({
             disabled={members.length === 0}
           />
 
-          {/* Optional evidence validation */}
-          <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: 'var(--sp-3)' }}>
-            <button
-              type="button"
-              className="flex items-center gap-2 text-sm font-semibold text-strong"
-              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-              onClick={toggleEvidence}
-              aria-expanded={showEvidence}
-            >
-              {showEvidence ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              Añadir evidencia (validación)
-            </button>
+          {selectedBadge && (
+            <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: 'var(--sp-3)' }}>
+              <div className="flex items-center gap-2 text-sm font-semibold text-strong mb-3">
+                <ShieldCheck size={16} /> Evidencia de validación
+              </div>
 
-            {showEvidence && (
-              <div className="flex-col gap-3 mt-3">
-                <EvidenceForm onChange={handleEvidenceChange} />
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={runValidate}
-                    loading={validate.isPending}
-                    disabled={!canValidate}
-                    leftIcon={<ShieldCheck size={15} />}
-                  >
-                    Validar evidencia
-                  </Button>
-                  {evidenceIncomplete && (
-                    <span className="text-xs text-muted">Completa la evidencia o desactívala.</span>
-                  )}
+              {missingRule ? (
+                <div className="text-sm text-danger">
+                  Este logro no tiene una regla de validación configurada. Actualiza la definición del logro antes de emitirlo.
                 </div>
+              ) : (
+                <div className="flex-col gap-3">
+                  <EvidenceForm rule={selectedBadge.validationRule} onChange={handleEvidenceChange} />
 
-                {validation && (
-                  <div
-                    className="flex items-start gap-2"
-                    style={{
-                      padding: '0.6rem 0.8rem',
-                      borderRadius: 'var(--r-sm)',
-                      background: validation.valid ? 'var(--success-bg)' : 'var(--danger-bg)',
-                      border: `1px solid ${validation.valid ? 'var(--success-border)' : 'var(--danger-border)'}`,
-                      color: validation.valid ? 'var(--success)' : 'var(--danger)',
-                    }}
-                  >
-                    {validation.valid ? (
-                      <CheckCircle2 size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-                    ) : (
-                      <XCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={runValidate}
+                      loading={validate.isPending}
+                      disabled={!canValidate}
+                      leftIcon={<ShieldCheck size={15} />}
+                    >
+                      Validar evidencia
+                    </Button>
+                    {evidence === null && (
+                      <span className="text-xs text-muted">Completa la evidencia para continuar.</span>
                     )}
-                    <div style={{ fontSize: '0.85rem' }}>
-                      <div style={{ fontWeight: 600 }}>
-                        {validation.valid ? 'Miembro elegible' : 'Evidencia inválida'}
-                      </div>
-                      <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
-                        {validation.valid
-                          ? 'Evidencia validada correctamente.'
-                          : `Motivo: ${validation.reason ?? validation.message}`}
+                  </div>
+
+                  {validation && (
+                    <div
+                      className="flex items-start gap-2"
+                      style={{
+                        padding: '0.6rem 0.8rem',
+                        borderRadius: 'var(--r-sm)',
+                        background: validation.valid ? 'var(--success-bg)' : 'var(--danger-bg)',
+                        border: `1px solid ${validation.valid ? 'var(--success-border)' : 'var(--danger-border)'}`,
+                        color: validation.valid ? 'var(--success)' : 'var(--danger)',
+                      }}
+                    >
+                      {validation.valid ? (
+                        <CheckCircle2 size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                      ) : (
+                        <XCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                      )}
+                      <div style={{ fontSize: '0.85rem' }}>
+                        <div style={{ fontWeight: 600 }}>
+                          {validation.valid ? 'Miembro elegible' : 'Evidencia inválida'}
+                        </div>
+                        <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                          {validation.valid
+                            ? 'Evidencia validada correctamente.'
+                            : `Motivo: ${validation.reason ?? validation.message}`}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {selectedBadge && selectedMember && (
             <div

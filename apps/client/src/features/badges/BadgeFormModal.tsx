@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { UploadCloud, X, Link2, Image as ImageIcon } from 'lucide-react';
+import { UploadCloud, X, Link2, Image as ImageIcon, Shield } from 'lucide-react';
 import { Modal, Input, Textarea, Button } from '../../components/ui';
 import { useCreateBadgeDefinition, useUploadMetadata } from '../../hooks/useBadges';
 import { useToast } from '../../providers/toast-context';
 import { ApiError } from '../../api/client';
 import { getFriendlyError } from '../../utils/errors';
+import { ValidationRuleForm } from './ValidationRuleForm';
+import type { CreateValidationRuleInput } from '../../types/api';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // backend limit
 
@@ -26,6 +28,9 @@ export function BadgeFormModal({ open, onClose, groupId }: BadgeFormModalProps) 
 
   const [manualMode, setManualMode] = useState(false);
   const [manualUri, setManualUri] = useState('');
+
+  const [validationRule, setValidationRule] = useState<CreateValidationRuleInput | null>(null);
+  const [validationRuleError, setValidationRuleError] = useState<string>();
 
   const [busyStep, setBusyStep] = useState<string | null>(null);
   const busy = busyStep !== null;
@@ -50,6 +55,8 @@ export function BadgeFormModal({ open, onClose, groupId }: BadgeFormModalProps) 
       setFileError(undefined);
       setManualMode(false);
       setManualUri('');
+      setValidationRule(null);
+      setValidationRuleError(undefined);
       setBusyStep(null);
       clearImage();
     }
@@ -86,6 +93,12 @@ export function BadgeFormModal({ open, onClose, groupId }: BadgeFormModalProps) 
     }
     setNameError(undefined);
 
+    if (!validationRule) {
+      setValidationRuleError('Configura la regla de validación del logro.');
+      return;
+    }
+    setValidationRuleError(undefined);
+
     try {
       let imageURI: string | undefined;
 
@@ -109,6 +122,7 @@ export function BadgeFormModal({ open, onClose, groupId }: BadgeFormModalProps) 
         name: trimmed,
         description: description.trim() || undefined,
         imageURI,
+        validationRule,
       });
       toast.success('Logro creado');
       onClose();
@@ -173,6 +187,30 @@ export function BadgeFormModal({ open, onClose, groupId }: BadgeFormModalProps) 
           rows={3}
           maxLength={500}
         />
+
+        <div className="field">
+          <span className="field__label flex items-center gap-2">
+            <Shield size={14} /> Regla de validación del oráculo
+          </span>
+          <div
+            style={{
+              padding: 'var(--sp-4)',
+              borderRadius: 'var(--r-md)',
+              background: 'var(--glass-bg)',
+              border: '1px solid var(--glass-border)',
+            }}
+          >
+            <ValidationRuleForm
+              onChange={setValidationRule}
+              disabled={busy}
+            />
+          </div>
+          {validationRuleError && (
+            <span className="field__error" role="alert">
+              {validationRuleError}
+            </span>
+          )}
+        </div>
 
         {!manualMode ? (
           <div className="field">

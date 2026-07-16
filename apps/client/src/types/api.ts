@@ -87,6 +87,7 @@ export interface BadgeDefinition {
   _count?: { badgeAwards: number };
   badgeAwards?: BadgeAward[];
   group?: Group;
+  validationRule?: ValidationRule;
 }
 
 export interface BadgeAward {
@@ -164,6 +165,41 @@ export type EvidenceType =
 export interface Evidence {
   type: EvidenceType;
   data: Record<string, unknown>;
+}
+
+export interface ValidationRuleConfig {
+  requireData?: boolean;
+  requirePastDate?: boolean;
+  minScore?: number;
+  requireMatchId?: boolean;
+  minPassingScore?: number;
+  maxAttempts?: number;
+  requiredFields?: string[];
+  [key: string]: unknown;
+}
+
+export interface ValidationRule {
+  id: string;
+  badgeDefinitionId: string;
+  evidenceType: EvidenceType;
+  rules: ValidationRuleConfig;
+  externalVerifierUrl?: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateValidationRuleInput {
+  evidenceType: EvidenceType;
+  rules: ValidationRuleConfig;
+  externalVerifierUrl?: string;
+}
+
+export interface UpdateValidationRuleInput {
+  evidenceType?: EvidenceType;
+  rules?: ValidationRuleConfig;
+  externalVerifierUrl?: string | null;
+  enabled?: boolean;
 }
 
 /** POST /badge-definitions/:id/validate */

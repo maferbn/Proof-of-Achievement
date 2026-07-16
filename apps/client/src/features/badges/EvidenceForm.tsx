@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { Input, Select } from '../../components/ui';
-import type { SelectOption } from '../../components/ui';
-import type { Evidence, EvidenceType } from '../../types/api';
+import { Input } from '../../components/ui';
+import type { Evidence, EvidenceType, ValidationRule, ValidationRuleConfig } from '../../types/api';
 
 interface FieldSpec {
   key: string;
@@ -12,15 +11,7 @@ interface FieldSpec {
   placeholder?: string;
 }
 
-const EVIDENCE_TYPES: SelectOption[] = [
-  { value: 'course_completion', label: 'Curso completado' },
-  { value: 'exam_pass', label: 'Examen aprobado' },
-  { value: 'game_win', label: 'Victoria en videojuego' },
-  { value: 'contribution', label: 'Contribución' },
-  { value: 'generic', label: 'Evidencia genérica' },
-];
-
-const FIELDS: Record<Exclude<EvidenceType, 'generic'>, FieldSpec[]> = {
+const BASE_FIELDS: Record<Exclude<EvidenceType, 'generic'>, FieldSpec[]> = {
   course_completion: [
     { key: 'courseId', label: 'ID del curso', type: 'text', required: true },
     { key: 'completionDate', label: 'Fecha de finalización', type: 'date', required: true },
@@ -28,13 +19,11 @@ const FIELDS: Record<Exclude<EvidenceType, 'generic'>, FieldSpec[]> = {
   exam_pass: [
     { key: 'examId', label: 'ID del examen', type: 'text', required: true },
     { key: 'score', label: 'Calificación', type: 'number', required: true },
-    { key: 'minPassingScore', label: 'Nota mínima para aprobar', type: 'number', placeholder: '70' },
   ],
   game_win: [
     { key: 'gameId', label: 'ID del juego', type: 'text', required: true },
     { key: 'matchId', label: 'ID de partida', type: 'text', required: true },
-    { key: 'score', label: 'Puntuación (opcional)', type: 'number' },
-    { key: 'minScore', label: 'Puntuación mínima (opcional)', type: 'number' },
+    { key: 'score', label: 'Puntuación', type: 'number' },
   ],
   contribution: [
     { key: 'contributionType', label: 'Tipo de contribución', type: 'text', required: true },
@@ -49,11 +38,35 @@ interface GenericPair {
   value: string;
 }
 
+function getFields(type: EvidenceType, rules: ValidationRuleConfig | undefined): FieldSpec[] {
+  const base = BASE_FIELDS[type as Exclude<EvidenceType, 'generic'>] ?? [];
+  if (type !== 'exam_pass' && type !== 'game_win') return base;
+
+  return base.map((f) => {
+    if (type === 'exam_pass' && f.key === 'score' && rules?.minPassingScore !== undefined) {
+      return {
+        ...f,
+        placeholder: `Mínimo ${rules.minPassingScore}`,
+        label: `${f.label} (mínimo ${rules.minPassingScore})`,
+      };
+    }
+    if (type === 'game_win' && f.key === 'score' && rules?.minScore !== undefined) {
+      return {
+        ...f,
+        placeholder: `Mínimo ${rules.minScore}`,
+        label: `${f.label} (mínimo ${rules.minScore})`,
+      };
+    }
+    return f;
+  });
+}
+
 /** Builds the Evidence payload, or null when required fields are missing. */
 function buildEvidence(
   type: EvidenceType,
   data: Record<string, string>,
   pairs: GenericPair[],
+  rules?: ValidationRuleConfig
 ): Evidence | null {
   if (type === 'generic') {
     const obj: Record<string, unknown> = {};
@@ -61,11 +74,14 @@ function buildEvidence(
       const k = p.key.trim();
       if (k) obj[k] = p.value;
     }
-    return Object.keys(obj).length > 0 ? { type, data: obj } : null;
+    const requireData = rules?.requireData !== false;
+    if (requireData && Object.keys(obj).length === 0) return null;
+    return { type, data: obj };
   }
 
+  const fields = BASE_FIELDS[type];
   const obj: Record<string, unknown> = {};
-  for (const f of FIELDS[type]) {
+  for (const f of fields) {
     const raw = (data[f.key] ?? '').trim();
     if (!raw) {
       if (f.required) return null;
@@ -73,20 +89,44 @@ function buildEvidence(
     }
     obj[f.key] = NUMERIC_KEYS.has(f.key) ? Number(raw) : raw;
   }
+
+  // Enforce dynamic thresholds in the payload so the backend can verify them
+  // (the backend also validates against the stored rule).
+  if (type === 'exam_pass' && rules?.minPassingScore !== undefined) {
+    obj.minPassingScore = Number(rules.minPassingScore);
+  }
+  if (type === 'game_win' && rules?.minScore !== undefined) {
+    obj.minScore = Number(rules.minScore);
+  }
+
   return { type, data: obj };
 }
 
 interface EvidenceFormProps {
+  /** Validation rule that fixes the evidence type and thresholds. */
+  rule?: ValidationRule;
   /** Emits the current evidence, or null when incomplete. */
   onChange: (evidence: Evidence | null) => void;
 }
 
-export function EvidenceForm({ onChange }: EvidenceFormProps) {
-  const [type, setType] = useState<EvidenceType>('course_completion');
+export function EvidenceForm({ rule, onChange }: EvidenceFormProps) {
+  const [type, setType] = useState<EvidenceType>(rule?.evidenceType ?? 'course_completion');
   const [data, setData] = useState<Record<string, string>>({});
   const [pairs, setPairs] = useState<GenericPair[]>([{ key: '', value: '' }]);
 
-  const evidence = useMemo(() => buildEvidence(type, data, pairs), [type, data, pairs]);
+  // Keep the internal type in sync when the rule changes (e.g. badge selection).
+  useEffect(() => {
+    if (rule) {
+      setType(rule.evidenceType);
+      setData({});
+      setPairs([{ key: '', value: '' }]);
+    }
+  }, [rule]);
+
+  const evidence = useMemo(
+    () => buildEvidence(type, data, pairs, rule?.rules),
+    [type, data, pairs, rule?.rules]
+  );
 
   // Keep the parent in sync without re-creating the callback dependency.
   const onChangeRef = useRef(onChange);
@@ -95,26 +135,21 @@ export function EvidenceForm({ onChange }: EvidenceFormProps) {
     onChangeRef.current(evidence);
   }, [evidence]);
 
-  const changeType = (next: EvidenceType) => {
-    setType(next);
-    setData({});
-    setPairs([{ key: '', value: '' }]);
-  };
-
   const setField = (key: string, value: string) => setData((d) => ({ ...d, [key]: value }));
+
+  const fields = useMemo(() => getFields(type, rule?.rules), [type, rule?.rules]);
 
   return (
     <div className="flex-col gap-4">
-      <Select
-        label="Tipo de evidencia"
-        options={EVIDENCE_TYPES}
-        value={type}
-        onChange={(e) => changeType(e.target.value as EvidenceType)}
-      />
+      {rule ? (
+        <div className="text-sm text-muted">
+          Evidencia requerida: <span className="text-strong">{typeLabel(type)}</span>
+        </div>
+      ) : null}
 
       {type !== 'generic' ? (
         <div className="flex-col gap-3">
-          {FIELDS[type].map((f) => (
+          {fields.map((f) => (
             <Input
               key={f.key}
               label={f.label}
@@ -178,4 +213,19 @@ export function EvidenceForm({ onChange }: EvidenceFormProps) {
       )}
     </div>
   );
+}
+
+function typeLabel(type: EvidenceType): string {
+  switch (type) {
+    case 'course_completion':
+      return 'Curso completado';
+    case 'exam_pass':
+      return 'Examen aprobado';
+    case 'game_win':
+      return 'Victoria en videojuego';
+    case 'contribution':
+      return 'Contribución';
+    case 'generic':
+      return 'Evidencia genérica';
+  }
 }
