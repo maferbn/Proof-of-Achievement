@@ -3,10 +3,13 @@ import type {
   AwardResponse,
   BadgeDefinition,
   BadgeMetadataUploadResponse,
+  CreateValidationRuleInput,
   Evidence,
   MemberBadgesResponse,
   RevokeResponse,
+  UpdateValidationRuleInput,
   ValidationResponse,
+  ValidationRule,
   VerifyReceiptResponse,
 } from '../types/api';
 
@@ -15,6 +18,7 @@ export interface BadgeDefinitionInput {
   name: string;
   description?: string;
   imageURI?: string;
+  validationRule: CreateValidationRuleInput;
 }
 
 export interface MetadataUploadInput {
@@ -26,7 +30,7 @@ export interface MetadataUploadInput {
 
 export interface AwardInput {
   memberId: string;
-  evidence?: Evidence;
+  evidence: Evidence;
 }
 
 export const badgesApi = {
@@ -58,6 +62,17 @@ export const badgesApi = {
     return apiClient.post<BadgeMetadataUploadResponse>('/badges/metadata', fd);
   },
 
+  /** GET /badge-definitions/:id/validation-rule — protected. */
+  getValidationRule: (badgeDefinitionId: string) =>
+    apiClient.get<ValidationRule>(`/badge-definitions/${badgeDefinitionId}/validation-rule`),
+
+  /** PUT /badge-definitions/:id/validation-rule — protected. */
+  updateValidationRule: (badgeDefinitionId: string, input: UpdateValidationRuleInput) =>
+    apiClient.put<ValidationRule>(
+      `/badge-definitions/${badgeDefinitionId}/validation-rule`,
+      input,
+    ),
+
   /** POST /badge-definitions/:id/validate — protected. Oracle eligibility check. */
   validate: (badgeDefinitionId: string, input: AwardInput) =>
     apiClient.post<ValidationResponse>(
@@ -65,7 +80,7 @@ export const badgesApi = {
       input,
     ),
 
-  /** POST /badge-definitions/:id/award — protected. Evidence is optional. */
+  /** POST /badge-definitions/:id/award — protected. Evidence is mandatory. */
   award: (badgeDefinitionId: string, input: AwardInput) =>
     apiClient.post<AwardResponse>(`/badge-definitions/${badgeDefinitionId}/award`, input),
 

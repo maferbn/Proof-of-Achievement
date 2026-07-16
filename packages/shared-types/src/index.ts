@@ -62,6 +62,74 @@ export interface User {
   updatedAt: Date;
 }
 
+// --- Oracle Validation Types ---
+
+/** Evidence is any free-form label plus a data payload validated dynamically. */
+export interface Evidence {
+  /** Free-form label chosen by the organization (e.g. "Certificado de curso"). */
+  type: string;
+  data: Record<string, unknown>;
+  signature?: string;
+}
+
+/** Supported field types for dynamic evidence rules. */
+export type FieldType = 'text' | 'number' | 'date' | 'boolean' | 'file';
+
+/** Constraints applied to a field value depending on its type. */
+export interface FieldConstraint {
+  /** Number: inclusive minimum. */
+  min?: number;
+  /** Number: inclusive maximum. */
+  max?: number;
+  /** Date: must be in the past. */
+  past?: boolean;
+  /** Date: must be in the future. */
+  future?: boolean;
+  /** Text: regex pattern the value must match. */
+  pattern?: string;
+}
+
+/** A field that makes up an evidence schema. */
+export interface FieldDefinition {
+  /** Machine name used as key in `Evidence.data`. */
+  name: string;
+  /** Human-readable label shown in forms. */
+  label: string;
+  type: FieldType;
+  required: boolean;
+  constraints?: FieldConstraint;
+}
+
+/** Dynamic validation rule: a list of fields with optional constraints. */
+export interface ValidationRuleConfig {
+  fields: FieldDefinition[];
+}
+
+export interface ValidationRule {
+  id: string;
+  badgeDefinitionId: string;
+  /** Free-form label (e.g. "Aprobar examen", "Ganar partida"). */
+  evidenceType: string;
+  rules: ValidationRuleConfig;
+  externalVerifierUrl?: string | null;
+  enabled: boolean;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+export interface CreateValidationRuleInput {
+  evidenceType: string;
+  rules: ValidationRuleConfig;
+  externalVerifierUrl?: string;
+}
+
+export interface UpdateValidationRuleInput {
+  evidenceType?: string;
+  rules?: ValidationRuleConfig;
+  externalVerifierUrl?: string | null;
+  enabled?: boolean;
+}
+
 // --- API Response Types ---
 
 export interface ApiResponse<T> {

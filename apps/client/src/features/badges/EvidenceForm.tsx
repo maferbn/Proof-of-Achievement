@@ -1,181 +1,240 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, X } from 'lucide-react';
-import { Input, Select } from '../../components/ui';
-import type { SelectOption } from '../../components/ui';
-import type { Evidence, EvidenceType } from '../../types/api';
-
-interface FieldSpec {
-  key: string;
-  label: string;
-  type: 'text' | 'number' | 'date';
-  required?: boolean;
-  placeholder?: string;
-}
-
-const EVIDENCE_TYPES: SelectOption[] = [
-  { value: 'course_completion', label: 'Curso completado' },
-  { value: 'exam_pass', label: 'Examen aprobado' },
-  { value: 'game_win', label: 'Victoria en videojuego' },
-  { value: 'contribution', label: 'Contribución' },
-  { value: 'generic', label: 'Evidencia genérica' },
-];
-
-const FIELDS: Record<Exclude<EvidenceType, 'generic'>, FieldSpec[]> = {
-  course_completion: [
-    { key: 'courseId', label: 'ID del curso', type: 'text', required: true },
-    { key: 'completionDate', label: 'Fecha de finalización', type: 'date', required: true },
-  ],
-  exam_pass: [
-    { key: 'examId', label: 'ID del examen', type: 'text', required: true },
-    { key: 'score', label: 'Calificación', type: 'number', required: true },
-    { key: 'minPassingScore', label: 'Nota mínima para aprobar', type: 'number', placeholder: '70' },
-  ],
-  game_win: [
-    { key: 'gameId', label: 'ID del juego', type: 'text', required: true },
-    { key: 'matchId', label: 'ID de partida', type: 'text', required: true },
-    { key: 'score', label: 'Puntuación (opcional)', type: 'number' },
-    { key: 'minScore', label: 'Puntuación mínima (opcional)', type: 'number' },
-  ],
-  contribution: [
-    { key: 'contributionType', label: 'Tipo de contribución', type: 'text', required: true },
-    { key: 'contributionId', label: 'ID de contribución', type: 'text', required: true },
-  ],
-};
-
-const NUMERIC_KEYS = new Set(['score', 'minPassingScore', 'minScore']);
-
-interface GenericPair {
-  key: string;
-  value: string;
-}
-
-/** Builds the Evidence payload, or null when required fields are missing. */
-function buildEvidence(
-  type: EvidenceType,
-  data: Record<string, string>,
-  pairs: GenericPair[],
-): Evidence | null {
-  if (type === 'generic') {
-    const obj: Record<string, unknown> = {};
-    for (const p of pairs) {
-      const k = p.key.trim();
-      if (k) obj[k] = p.value;
-    }
-    return Object.keys(obj).length > 0 ? { type, data: obj } : null;
-  }
-
-  const obj: Record<string, unknown> = {};
-  for (const f of FIELDS[type]) {
-    const raw = (data[f.key] ?? '').trim();
-    if (!raw) {
-      if (f.required) return null;
-      continue;
-    }
-    obj[f.key] = NUMERIC_KEYS.has(f.key) ? Number(raw) : raw;
-  }
-  return { type, data: obj };
-}
+import type { Evidence, FieldDefinition, ValidationRule } from '../../types/api';
+import { Input } from '../../components/ui';
 
 interface EvidenceFormProps {
+  /** Validation rule that defines the dynamic evidence schema. */
+  rule?: ValidationRule;
   /** Emits the current evidence, or null when incomplete. */
   onChange: (evidence: Evidence | null) => void;
 }
 
-export function EvidenceForm({ onChange }: EvidenceFormProps) {
-  const [type, setType] = useState<EvidenceType>('course_completion');
-  const [data, setData] = useState<Record<string, string>>({});
-  const [pairs, setPairs] = useState<GenericPair[]>([{ key: '', value: '' }]);
+/**
+ * Parses a raw string value into the runtime type expected by the backend.
+ */
+function parseValue(raw: string, type: string): unknown {
+  switch (type) {
+    case 'number': {
+      const num = raw === '' ? NaN : Number(raw);
+      return Number.isNaN(num) ? undefined : num;
+    }
+    case 'boolean':
+      return raw === 'true' ? true : raw === 'false' ? false : undefined;
+    case 'date':
+      return raw || undefined;
+    case 'text':
+    case 'file':
+    default:
+      return raw || undefined;
+  }
+}
 
-  const evidence = useMemo(() => buildEvidence(type, data, pairs), [type, data, pairs]);
+/**
+ * Returns true if the value satisfies the field's client-side constraints.
+ */
+function satisfiesConstraints(value: unknown, field: FieldDefinition): boolean {
+  if (!field.constraints) return true;
+  const c = field.constraints;
 
-  // Keep the parent in sync without re-creating the callback dependency.
+  if (field.type === 'number' && typeof value === 'number') {
+    if (c.min !== undefined && value < c.min) return false;
+    if (c.max !== undefined && value > c.max) return false;
+  }
+
+  if (field.type === 'date' && typeof value === 'string') {
+    const date = new Date(value);
+    const now = new Date();
+    if (c.past && date.getTime() >= now.getTime()) return false;
+    if (c.future && date.getTime() <= now.getTime()) return false;
+  }
+
+  if (field.type === 'text' && typeof value === 'string' && c.pattern) {
+    try {
+      return new RegExp(c.pattern).test(value);
+    } catch {
+      return true;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Builds an Evidence payload from raw form values, or null when incomplete.
+ */
+function buildEvidence(
+  evidenceType: string,
+  fields: FieldDefinition[],
+  rawValues: Record<string, string>
+): Evidence | null {
+  const data: Record<string, unknown> = {};
+
+  for (const field of fields) {
+    const raw = rawValues[field.name] ?? '';
+    const value = parseValue(raw, field.type);
+    const isPresent = value !== undefined && value !== null && value !== '';
+
+    if (field.required && !isPresent) {
+      return null;
+    }
+
+    if (!isPresent) {
+      continue;
+    }
+
+    if (!satisfiesConstraints(value, field)) {
+      return null;
+    }
+
+    data[field.name] = value;
+  }
+
+  // At least one value must be present for the evidence to be meaningful
+  if (Object.keys(data).length === 0) {
+    return null;
+  }
+
+  return { type: evidenceType, data };
+}
+
+export function EvidenceForm({ rule, onChange }: EvidenceFormProps) {
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  // Reset form when the rule changes.
+  useEffect(() => {
+    setValues({});
+  }, [rule?.id]);
+
+  const evidence = useMemo(
+    () => (rule ? buildEvidence(rule.evidenceType, rule.rules?.fields ?? [], values) : null),
+    [rule, values]
+  );
+
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   useEffect(() => {
     onChangeRef.current(evidence);
   }, [evidence]);
 
-  const changeType = (next: EvidenceType) => {
-    setType(next);
-    setData({});
-    setPairs([{ key: '', value: '' }]);
-  };
+  const setValue = (name: string, value: string) =>
+    setValues((prev) => ({ ...prev, [name]: value }));
 
-  const setField = (key: string, value: string) => setData((d) => ({ ...d, [key]: value }));
+  if (!rule) {
+    return (
+      <p className="text-sm text-muted">
+        Este logro no tiene una regla de validación configurada.
+      </p>
+    );
+  }
 
   return (
     <div className="flex-col gap-4">
-      <Select
-        label="Tipo de evidencia"
-        options={EVIDENCE_TYPES}
-        value={type}
-        onChange={(e) => changeType(e.target.value as EvidenceType)}
-      />
+      <div className="text-sm text-muted">
+        Tipo de evidencia: <span className="text-strong">{rule.evidenceType}</span>
+      </div>
 
-      {type !== 'generic' ? (
-        <div className="flex-col gap-3">
-          {FIELDS[type].map((f) => (
-            <Input
-              key={f.key}
-              label={f.label}
-              required={f.required}
-              type={f.type}
-              inputMode={f.type === 'number' ? 'numeric' : undefined}
-              placeholder={f.placeholder}
-              value={data[f.key] ?? ''}
-              onChange={(e) => setField(f.key, e.target.value)}
-              autoComplete="off"
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="flex-col gap-2">
-          <span className="field__label" style={{ fontSize: '0.85rem' }}>
-            Pares clave / valor
-          </span>
-          {pairs.map((p, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                className="input input--mono"
-                style={{ fontSize: '0.84rem' }}
-                placeholder="clave"
-                value={p.key}
-                onChange={(e) =>
-                  setPairs((prev) => prev.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))
-                }
-                aria-label={`Clave ${i + 1}`}
-              />
-              <input
-                className="input"
-                style={{ fontSize: '0.84rem' }}
-                placeholder="valor"
-                value={p.value}
-                onChange={(e) =>
-                  setPairs((prev) => prev.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))
-                }
-                aria-label={`Valor ${i + 1}`}
-              />
-              <button
-                type="button"
-                className="btn btn--ghost btn--icon"
-                onClick={() => setPairs((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev))}
-                aria-label="Quitar par"
-                disabled={pairs.length === 1}
-              >
-                <X size={15} />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            style={{ width: 'fit-content' }}
-            onClick={() => setPairs((prev) => [...prev, { key: '', value: '' }])}
-          >
-            <Plus size={14} /> Añadir campo
-          </button>
-        </div>
-      )}
+      {(rule.rules?.fields ?? []).map((field) => (
+        <FieldInput
+          key={field.name}
+          field={field}
+          value={values[field.name] ?? ''}
+          onChange={(value) => setValue(field.name, value)}
+        />
+      ))}
     </div>
   );
+}
+
+interface FieldInputProps {
+  field: FieldDefinition;
+  value: string;
+  onChange: (value: string) => void;
+}
+
+function FieldInput({ field, value, onChange }: FieldInputProps) {
+  const label = `${field.label}${field.required ? ' *' : ''}`;
+
+  switch (field.type) {
+    case 'number':
+      return (
+        <Input
+          label={label}
+          required={field.required}
+          type="number"
+          inputMode="numeric"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={constraintHint(field)}
+        />
+      );
+
+    case 'date':
+      return (
+        <Input
+          label={label}
+          required={field.required}
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={constraintHint(field)}
+        />
+      );
+
+    case 'boolean':
+      return (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={value === 'true'}
+            onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
+          />
+          {label}
+        </label>
+      );
+
+    case 'file':
+      return (
+        <Input
+          label={label}
+          required={field.required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="ipfs://... o https://..."
+        />
+      );
+
+    case 'text':
+    default:
+      return (
+        <Input
+          label={label}
+          required={field.required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={constraintHint(field)}
+        />
+      );
+  }
+}
+
+function constraintHint(field: FieldDefinition): string | undefined {
+  const c = field.constraints;
+  if (!c) return undefined;
+
+  if (field.type === 'number') {
+    if (c.min !== undefined && c.max !== undefined) return `Entre ${c.min} y ${c.max}`;
+    if (c.min !== undefined) return `Mínimo ${c.min}`;
+    if (c.max !== undefined) return `Máximo ${c.max}`;
+  }
+
+  if (field.type === 'date') {
+    if (c.past) return 'Debe ser una fecha pasada';
+    if (c.future) return 'Debe ser una fecha futura';
+  }
+
+  if (field.type === 'text' && c.pattern) {
+    return `Debe coincidir con: ${c.pattern}`;
+  }
+
+  return undefined;
 }

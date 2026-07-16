@@ -100,22 +100,42 @@ model Member {
 // ==================== BADGE DEFINITION ====================
 // Template of a badge (name, description, image URI) created by an admin
 model BadgeDefinition {
-  id                String    @id @default(cuid())
+  id                String           @id @default(cuid())
   adminId           String
   groupId           String
   name              String
   description       String?
   imageURI          String? // IPFS URL or similar
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
-  admin             Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  group             Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  admin             Admin            @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  group             Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
   badgeAwards       BadgeAward[]
+  validationRule    ValidationRule?
 
   @@index([adminId])
   @@index([groupId])
   @@unique([groupId, name]) // Unique badge name per group
+}
+
+// ==================== VALIDATION RULE ====================
+// Oracle validation rules attached to a BadgeDefinition.
+// Each badge definition has exactly one rule that defines the required
+// evidence type, thresholds, and optional external verifier URL.
+model ValidationRule {
+  id                  String          @id @default(cuid())
+  badgeDefinitionId   String          @unique // 1:1 with BadgeDefinition
+  evidenceType        String
+  rules               Json            // Type-specific thresholds / required fields
+  externalVerifierUrl String?         // Optional external verifier API
+  enabled             Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  badgeDefinition     BadgeDefinition @relation(fields: [badgeDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([badgeDefinitionId])
 }
 
 // ==================== BADGE AWARD ====================
